@@ -13,6 +13,7 @@ import DashboardScreen from './screens/DashboardScreen';
 // Screen names lowercase mein map hain, taake 'Login' aur 'login' dono chalein
 const SCREENS = {
   splash: SplashScreen,
+  welcome: WelcomeScreen,
   login: LoginScreen,
   signup: SignUpScreen,
   forgotpassword: ForgotPasswordScreen,
