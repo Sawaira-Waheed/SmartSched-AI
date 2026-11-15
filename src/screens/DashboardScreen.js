@@ -15,7 +15,7 @@ const DASHBOARD_DATA = {
     roleLabel: 'REGISTRAR',
     greetingSub: 'Institution-wide view',
     heroValue: 72,
-    heroCaption: 'Timetable done',
+    heroCaption: 'Timetable completion',
     heroTitle: 'On track for this term',
     mini: [
       { label: 'Published', value: '38' },
@@ -56,7 +56,7 @@ const DASHBOARD_DATA = {
     roleLabel: 'HOD',
     greetingSub: 'Computer Science department',
     heroValue: 64,
-    heroCaption: 'Timetable done',
+    heroCaption: 'Timetable completion',
     heroTitle: 'Needs attention before deadline',
     mini: [
       { label: 'Sections', value: '8' },
@@ -93,7 +93,7 @@ const DASHBOARD_DATA = {
     roleLabel: 'FACULTY',
     greetingSub: 'Your teaching schedule',
     heroValue: 75,
-    heroCaption: 'Load used',
+    heroCaption: 'Weekly load used',
     heroTitle: 'Within your 20-hour limit',
     mini: [
       { label: 'Classes', value: '12' },
@@ -177,6 +177,12 @@ const getGreeting = () => {
   return 'Good evening';
 };
 
+// Shared styles hook for the small components below.
+const useStyles = () => {
+  const { c, shadow } = useTheme();
+  return useMemo(() => makeStyles(c, shadow), [c, shadow]);
+};
+
 // ---------- CHART PIECES ----------
 
 const GradientDef = ({ id, colors, vertical = false }) => (
@@ -187,37 +193,6 @@ const GradientDef = ({ id, colors, vertical = false }) => (
     </LinearGradient>
   </Defs>
 );
-
-const Donut = ({ id, value, size = 120, stroke = 12, gradient, track, children }) => {
-  const s = useStyles();
-  const center = size / 2;
-  const r = center - stroke / 2;
-  const circumference = 2 * Math.PI * r;
-  const clamped = Math.min(Math.max(value, 0), 100);
-  const offset = circumference * (1 - clamped / 100);
-
-  return (
-    <View style={{ width: size, height: size }}>
-      <Svg width={size} height={size}>
-        <GradientDef id={id} colors={gradient} />
-        <Circle cx={center} cy={center} r={r} stroke={track} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={center}
-          cy={center}
-          r={r}
-          stroke={`url(#${id})`}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${center} ${center})`}
-        />
-      </Svg>
-      <View style={s.donutCenter}>{children}</View>
-    </View>
-  );
-};
 
 const Sparkline = ({ id, data, color, width = 110, height = 40 }) => {
   const min = Math.min(...data);
@@ -341,8 +316,8 @@ const QuickActions = ({ role, navigation, routeParams }) => {
 // ---------- SCREEN ----------
 
 const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
-  const { c, shadow } = useTheme();
-  const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+  const { c } = useTheme();
+  const s = useStyles();
 
   const role = route?.params?.role || 'hod';
   const userName = route?.params?.name || 'User';
@@ -363,6 +338,7 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
   }, {});
   const total = data.list.length || 1;
   const tagColor = (tag) => (tag === 'high' ? c.red : tag === 'low' ? c.amber : c.primary);
+  const tagSoft = (tag) => (tag === 'high' ? c.redSoft : tag === 'low' ? c.amberSoft : c.primarySoft);
 
   const initial = userName.charAt(0).toUpperCase();
   const peakDay = DAYS[data.weekLoad.indexOf(Math.max(...data.weekLoad))];
@@ -372,10 +348,14 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         {/* GREETING ROW */}
         <View style={s.topBar}>
-          <View style={{ flex: 1 }}>
+          <View style={s.greetWrap}>
             <Text style={s.greeting}>{getGreeting()},</Text>
-            <Text style={s.name}>{userName} 👋</Text>
-            <Text style={s.greetingSub}>{data.greetingSub}</Text>
+            <Text style={s.name} numberOfLines={1}>
+              {userName} 👋
+            </Text>
+            <Text style={s.greetingSub} numberOfLines={1}>
+              {data.greetingSub}
+            </Text>
           </View>
 
           <Pressable
@@ -387,53 +367,39 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
             <Text style={s.iconGlyph}>{themeMode === 'light' ? '☾' : '☀'}</Text>
           </Pressable>
 
-          <View style={s.avatarWrap}>
+          <View style={s.avatar}>
             <Text style={s.avatarText}>{initial}</Text>
           </View>
         </View>
 
-        {/* HERO */}
-                {/* HERO */}
+        {/* HERO: open layout, no box around the progress */}
         <View style={s.hero}>
-          <View style={s.heroBlob} />
-
           <View style={s.heroTop}>
             <View style={s.rolePill}>
               <View style={s.roleDot} />
               <Text style={s.rolePillText}>{data.roleLabel}</Text>
             </View>
-            <Text style={s.heroCaptionTop}>This term</Text>
+            <Text style={s.heroTerm}>This term</Text>
           </View>
 
-          <View style={s.heroBody}>
-            <View style={s.heroLeft}>
-              <Text style={s.heroTitle}>{data.heroTitle}</Text>
-              <View style={s.miniRow}>
-                {data.mini.map((m) => (
-                  <View key={m.label} style={s.miniItem}>
-                    <Text style={s.miniValue}>{m.value}</Text>
-                    <Text style={s.miniLabel}>{m.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
+          <Text style={s.heroTitle}>{data.heroTitle}</Text>
 
-            <View style={s.ringWrap}>
-              <Donut
-                id="heroDonut"
-                value={data.heroValue}
-                size={104}
-                stroke={10}
-                gradient={c.grad.primary}
-                track="rgba(255,255,255,0.28)"
-              />
-              <View style={s.ringCenter} pointerEvents="none">
-                <Text style={s.donutValue}>{data.heroValue}%</Text>
-              </View>
-            </View>
+          <View style={s.progressHead}>
+            <Text style={s.progressLabel}>{data.heroCaption}</Text>
+            <Text style={s.progressValue}>{data.heroValue}%</Text>
+          </View>
+          <View style={s.track}>
+            <View style={[s.fill, { width: `${data.heroValue}%` }]} />
           </View>
 
-          <Text style={s.heroCaption}>{data.heroCaption}</Text>
+          <View style={s.miniRow}>
+            {data.mini.map((m) => (
+              <View key={m.label} style={s.miniTile}>
+                <Text style={s.miniValue}>{m.value}</Text>
+                <Text style={s.miniLabel}>{m.label}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         {/* OVERVIEW */}
@@ -448,7 +414,9 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
                 <View style={[s.statIcon, { backgroundColor: c[`${stat.colorKey}Soft`] }]}>
                   <View style={[s.statIconDot, { backgroundColor: c[stat.colorKey] }]} />
                 </View>
-                <Text style={s.statLabel}>{stat.label}</Text>
+                <Text style={s.statLabel} numberOfLines={1}>
+                  {stat.label}
+                </Text>
                 <Text style={s.statValue}>{stat.value}</Text>
                 <Text style={[s.statDelta, { color: deltaColor }]}>
                   {isNeutral ? 'No change' : `${stat.delta} this term`}
@@ -543,7 +511,7 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
                   <Text style={s.listTitleText}>{item.title}</Text>
                   <Text style={s.listDetail}>{item.detail}</Text>
                 </View>
-                <View style={[s.tagPill, { backgroundColor: c[`${item.tag === 'high' ? 'red' : item.tag === 'low' ? 'amber' : 'primary'}Soft`] }]}>
+                <View style={[s.tagPill, { backgroundColor: tagSoft(item.tag) }]}>
                   <Text style={[s.tagText, { color: tagColor(item.tag) }]}>{TAG_LABEL[item.tag]}</Text>
                 </View>
               </View>
@@ -553,7 +521,6 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
 
         {/* AI COPILOT */}
         <View style={s.aiPanel}>
-          <View style={s.aiGlow} />
           <View style={s.aiHeader}>
             <View style={s.aiBadge}>
               <Text style={s.aiBadgeText}>AI</Text>
@@ -566,19 +533,12 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
 
           {suggestions.length === 0 ? <Text style={s.aiEmpty}>All suggestions reviewed. ✓</Text> : null}
 
-          {suggestions.map((item, i) => (
+          {suggestions.map((item) => (
             <View key={item.id} style={s.aiItem}>
               <View style={s.aiItemTop}>
-                <Donut
-                  id={`conf${i}`}
-                  value={item.confidence}
-                  size={46}
-                  stroke={5}
-                  gradient={c.grad.mint}
-                  track="rgba(255,255,255,0.25)"
-                >
-                  <Text style={s.confValue}>{item.confidence}</Text>
-                </Donut>
+                <View style={s.confBadge}>
+                  <Text style={s.confValue}>{item.confidence}%</Text>
+                </View>
                 <Text style={s.aiText}>{item.text}</Text>
               </View>
               <View style={s.aiButtons}>
@@ -625,11 +585,6 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
 
 export default DashboardScreen;
 
-const useStyles = () => {
-  const { c, shadow } = useTheme();
-  return useMemo(() => makeStyles(c, shadow), [c, shadow]);
-};
-
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
@@ -641,11 +596,12 @@ const makeStyles = (c, shadow) =>
     topBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 22,
+      paddingHorizontal: 20,
       paddingBottom: 18,
     },
+    greetWrap: { flex: 1, marginRight: 10 },
     greeting: { fontSize: 13, color: c.muted, fontWeight: '700' },
-    name: { fontSize: 24, fontWeight: '800', color: c.text, marginTop: 2 },
+    name: { fontSize: 22, fontWeight: '800', color: c.text, marginTop: 2 },
     greetingSub: { fontSize: 12, color: c.muted, marginTop: 3 },
     iconBtn: {
       width: 44,
@@ -658,7 +614,7 @@ const makeStyles = (c, shadow) =>
       ...shadow,
     },
     iconGlyph: { fontSize: 18, color: c.primary, fontWeight: '800' },
-    avatarWrap: {
+    avatar: {
       width: 44,
       height: 44,
       borderRadius: 22,
@@ -666,51 +622,65 @@ const makeStyles = (c, shadow) =>
       alignItems: 'center',
       justifyContent: 'center',
       marginLeft: 8,
-      ...shadow,
     },
     avatarText: { color: c.white, fontSize: 17, fontWeight: '800' },
 
-    // HERO
-       hero: {
-      marginHorizontal: 20,
-      borderRadius: 28,
-      padding: 20,
-      backgroundColor: c.primary,
+    // HERO (open layout, no containing box)
+    hero: { marginHorizontal: 20, paddingTop: 4, paddingBottom: 6 },
+    heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    rolePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.primarySoft,
+      borderRadius: 20,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    roleDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.primary, marginRight: 6 },
+    rolePillText: { fontSize: 10, fontWeight: '800', color: c.primary, letterSpacing: 1 },
+    heroTerm: { fontSize: 11, color: c.muted, fontWeight: '700' },
+    heroTitle: { fontSize: 20, fontWeight: '800', color: c.text, marginTop: 14, lineHeight: 26 },
+
+    progressHead: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'baseline',
+      marginTop: 18,
+    },
+    progressLabel: { fontSize: 12, color: c.muted, fontWeight: '700' },
+    progressValue: { fontSize: 22, fontWeight: '800', color: c.primary },
+    track: {
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: c.surfaceAlt,
+      marginTop: 10,
       overflow: 'hidden',
+    },
+    fill: { height: '100%', borderRadius: 5, backgroundColor: c.primary },
+
+    miniRow: { flexDirection: 'row', marginTop: 16, marginHorizontal: -5 },
+    miniTile: {
+      flex: 1,
+      backgroundColor: c.surface,
+      borderRadius: 18,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginHorizontal: 5,
       ...shadow,
     },
-    heroTop: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
+    miniValue: { fontSize: 18, fontWeight: '800', color: c.text },
+    miniLabel: { fontSize: 10, color: c.muted, fontWeight: '700', marginTop: 3, textAlign: 'center' },
+
+    sectionTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: c.muted,
+      letterSpacing: 1.2,
+      marginHorizontal: 22,
+      marginTop: 24,
+      marginBottom: 12,
     },
-    heroCaptionTop: { fontSize: 11, color: 'rgba(255,255,255,0.85)', fontWeight: '700' },
-    heroBody: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: 14,
-    },
-    heroLeft: { flex: 1, paddingRight: 12 },
-    heroTitle: { fontSize: 18, fontWeight: '800', color: c.white },
-    heroCaption: {
-      fontSize: 11,
-      color: 'rgba(255,255,255,0.85)',
-      fontWeight: '700',
-      marginTop: 14,
-    },
-    ringWrap: {
-      width: 104,
-      height: 104,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    ringCenter: {
-      ...StyleSheet.absoluteFillObject,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    donutValue: { fontSize: 22, fontWeight: '800', color: c.white },
+
     // STATS
     statsRow: { paddingHorizontal: 20, paddingRight: 8 },
     statCard: {
@@ -800,17 +770,7 @@ const makeStyles = (c, shadow) =>
       padding: 18,
       borderRadius: 24,
       backgroundColor: c.primary,
-      overflow: 'hidden',
       ...shadow,
-    },
-    aiGlow: {
-      position: 'absolute',
-      width: 180,
-      height: 180,
-      borderRadius: 90,
-      backgroundColor: 'rgba(255,255,255,0.14)',
-      bottom: -80,
-      left: -60,
     },
     aiHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
     aiBadge: { backgroundColor: c.white, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5, marginRight: 12 },
@@ -819,10 +779,18 @@ const makeStyles = (c, shadow) =>
     aiSub: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
     aiEmpty: { fontSize: 12, color: 'rgba(255,255,255,0.9)' },
     aiItem: { backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 18, padding: 14, marginBottom: 10 },
-    aiItemTop: { flexDirection: 'row', alignItems: 'center' },
-    confValue: { fontSize: 11, fontWeight: '800', color: c.white },
+    aiItemTop: { flexDirection: 'row', alignItems: 'flex-start' },
+    confBadge: {
+      backgroundColor: c.white,
+      borderRadius: 10,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      minWidth: 48,
+      alignItems: 'center',
+    },
+    confValue: { fontSize: 11, fontWeight: '800', color: c.primary },
     aiText: { flex: 1, fontSize: 12, lineHeight: 18, color: c.white, marginLeft: 12 },
-    aiButtons: { flexDirection: 'row', marginTop: 12, marginLeft: 58 },
+    aiButtons: { flexDirection: 'row', marginTop: 12, marginLeft: 60 },
     aiAccept: { backgroundColor: c.white, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, marginRight: 8 },
     aiAcceptText: { color: c.primary, fontSize: 12, fontWeight: '800' },
     aiReject: {
