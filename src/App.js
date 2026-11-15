@@ -15,6 +15,7 @@ import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
 import { MENU } from './navigation/menu';
+import FacultyScreen from './screens/FacultyScreen';
 
 // Screens shown before login. No top bar or drawer.
 const AUTH_SCREENS = {
@@ -25,6 +26,7 @@ const AUTH_SCREENS = {
   forgotpassword: ForgotPasswordScreen,
   otpverification: OtpScreen,
   resetpassword: ResetPasswordScreen,
+  faculty: FacultyScreen,
 };
 
 // Creates a placeholder screen with its own title.
