@@ -9,7 +9,13 @@ const AppShell = ({ title, onMenu, children }) => {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={onMenu} style={styles.menuButton} hitSlop={10}>
+        <Pressable
+          onPress={onMenu}
+          style={styles.menuButton}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Open menu"
+        >
           <View style={styles.bar} />
           <View style={[styles.bar, styles.barShort]} />
           <View style={styles.bar} />

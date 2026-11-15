@@ -1,13 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Animated,
-  Dimensions,
-} from 'react-native';
+import React from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet, Dimensions } from 'react-native';
 import { MENU } from '../navigation/menu';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -19,47 +11,17 @@ const ROLE_LABEL = {
   faculty: 'FACULTY',
 };
 
-const DrawerMenu = ({ open, session, activeKey, onSelect, onClose, onLogout }) => {
-  const anim = useRef(new Animated.Value(0)).current;
-  // Stays false while closed so it doesn't block the header button
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    if (open) setMounted(true);
-
-    Animated.timing(anim, {
-      toValue: open ? 1 : 0,
-      duration: 260,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished && !open) setMounted(false);
-    });
-  }, [open, anim]);
-
-  if (!mounted) return null;
-
-  const translateX = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-PANEL_W, 0],
-  });
-
-  const overlayOpacity = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 0.55],
-  });
-
+// Simple drawer with no animation. It is only rendered while open.
+const DrawerMenu = ({ session, activeKey, onSelect, onClose, onLogout }) => {
   const items = MENU.filter((item) => item.roles.includes(session.role));
   const initial = session.name.charAt(0).toUpperCase();
 
   return (
     <View style={styles.root}>
-      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      </Animated.View>
+      {/* Dark area behind the drawer. Tapping it closes the drawer. */}
+      <Pressable style={styles.overlay} onPress={onClose} />
 
-      <Animated.View
-        style={[styles.panel, { width: PANEL_W, transform: [{ translateX }] }]}
-      >
+      <View style={styles.panel}>
         <View style={styles.profile}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initial}</Text>
@@ -79,11 +41,7 @@ const DrawerMenu = ({ open, session, activeKey, onSelect, onClose, onLogout }) =
               <Pressable
                 key={item.key}
                 onPress={() => onSelect(item)}
-                style={({ pressed }) => [
-                  styles.item,
-                  active && styles.itemActive,
-                  pressed && styles.itemPressed,
-                ]}
+                style={[styles.item, active && styles.itemActive]}
               >
                 {active && <View style={styles.activeBar} />}
                 <Text style={[styles.glyph, active && styles.glyphActive]}>
@@ -100,7 +58,7 @@ const DrawerMenu = ({ open, session, activeKey, onSelect, onClose, onLogout }) =
         <Pressable onPress={onLogout} style={styles.logout}>
           <Text style={styles.logoutText}>Log out</Text>
         </Pressable>
-      </Animated.View>
+      </View>
     </View>
   );
 };
@@ -109,14 +67,22 @@ export default DrawerMenu;
 
 const styles = StyleSheet.create({
   root: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 20,
-    elevation: 20,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    elevation: 100,
   },
 
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000000',
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
 
   panel: {
@@ -124,6 +90,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     left: 0,
+    width: PANEL_W,
     backgroundColor: '#0E1626',
     paddingTop: 60,
     paddingBottom: 28,
@@ -187,10 +154,6 @@ const styles = StyleSheet.create({
 
   itemActive: {
     backgroundColor: 'rgba(79,124,255,0.18)',
-  },
-
-  itemPressed: {
-    opacity: 0.8,
   },
 
   activeBar: {
