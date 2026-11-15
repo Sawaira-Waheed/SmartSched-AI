@@ -9,6 +9,7 @@ import ForgotPasswordScreen from './screens/ForgotPasswordScreen';
 import OtpScreen from './screens/OtpScreen';
 import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import DashboardScreen from './screens/DashboardScreen';
+import TimetableScreen from './screens/TimetableScreen';
 
 // Screen names lowercase mein map hain, taake 'Login' aur 'login' dono chalein
 const SCREENS = {
@@ -20,6 +21,7 @@ const SCREENS = {
   otpverification: OtpScreen,
   resetpassword: ResetPasswordScreen,
   dashboard: DashboardScreen,
+    timetable: TimetableScreen,
 };
 
 export default function App() {

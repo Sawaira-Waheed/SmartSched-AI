@@ -459,6 +459,7 @@ const getStyles = (theme) => {
   if (!styleCache[t.mode]) styleCache[t.mode] = buildStyles(t);
   return styleCache[t.mode];
 };
+
 // ---------- SAMPLE DATA ----------
 // Replace with database values once the backend is connected.
 
@@ -581,24 +582,25 @@ const DASHBOARD_DATA = {
   },
 };
 
+// screen: name of a registered screen in App.js, or null if not built yet
 const ACTIONS_BY_ROLE = {
   registrar: [
-    { label: 'Generate', sub: 'Build a new timetable', glyph: '✦', colors: GRAD.blue },
-    { label: 'Timetable', sub: 'View all departments', glyph: '▦', colors: GRAD.lavender },
-    { label: 'Faculty', sub: 'Manage staff and load', glyph: '◉', colors: GRAD.green },
-    { label: 'Conflicts', sub: 'Scan for clashes', glyph: '!', colors: GRAD.red },
+    { label: 'Generate', sub: 'Build a new timetable', glyph: '✦', colors: GRAD.blue, screen: null },
+    { label: 'Timetable', sub: 'View all departments', glyph: '▦', colors: GRAD.lavender, screen: 'timetable' },
+    { label: 'Faculty', sub: 'Manage staff and load', glyph: '◉', colors: GRAD.green, screen: null },
+    { label: 'Conflicts', sub: 'Scan for clashes', glyph: '!', colors: GRAD.red, screen: null },
   ],
   hod: [
-    { label: 'Generate', sub: 'Build department timetable', glyph: '✦', colors: GRAD.blue },
-    { label: 'Timetable', sub: 'View your sections', glyph: '▦', colors: GRAD.lavender },
-    { label: 'Availability', sub: 'Teacher time slots', glyph: '◷', colors: GRAD.green },
-    { label: 'Conflicts', sub: 'Scan for clashes', glyph: '!', colors: GRAD.red },
+    { label: 'Generate', sub: 'Build department timetable', glyph: '✦', colors: GRAD.blue, screen: null },
+    { label: 'Timetable', sub: 'View your sections', glyph: '▦', colors: GRAD.lavender, screen: 'timetable' },
+    { label: 'Availability', sub: 'Teacher time slots', glyph: '◷', colors: GRAD.green, screen: null },
+    { label: 'Conflicts', sub: 'Scan for clashes', glyph: '!', colors: GRAD.red, screen: null },
   ],
   faculty: [
-    { label: 'My Timetable', sub: 'Your weekly classes', glyph: '▦', colors: GRAD.blue },
-    { label: 'Availability', sub: 'Update free slots', glyph: '◷', colors: GRAD.green },
-    { label: 'Calendar', sub: 'Dates and events', glyph: '◫', colors: GRAD.lavender },
-    { label: 'Profile', sub: 'Account and settings', glyph: '◉', colors: GRAD.amber },
+    { label: 'My Timetable', sub: 'Your weekly classes', glyph: '▦', colors: GRAD.blue, screen: 'timetable' },
+    { label: 'Availability', sub: 'Update free slots', glyph: '◷', colors: GRAD.green, screen: null },
+    { label: 'Calendar', sub: 'Dates and events', glyph: '◫', colors: GRAD.lavender, screen: null },
+    { label: 'Profile', sub: 'Account and settings', glyph: '◉', colors: GRAD.amber, screen: null },
   ],
 };
 
@@ -802,11 +804,15 @@ const GradientPanel = ({ id, colors, style, children }) => {
 
 // ---------- QUICK ACTIONS ----------
 
-const QuickActions = ({ role, s }) => {
+const QuickActions = ({ role, s, navigation, routeParams }) => {
   const actions = ACTIONS_BY_ROLE[role] || ACTIONS_BY_ROLE.hod;
 
-  const handlePress = (label) => {
-    Alert.alert('Coming soon', `${label} will be available in the next update.`);
+  const handlePress = (action) => {
+    if (action.screen && navigation) {
+      navigation.navigate(action.screen, routeParams);
+    } else {
+      Alert.alert('Coming soon', `${action.label} will be available in the next update.`);
+    }
   };
 
   return (
@@ -817,7 +823,7 @@ const QuickActions = ({ role, s }) => {
           <Pressable
             key={action.label}
             style={({ pressed }) => [s.qaTile, pressed && s.qaTilePressed]}
-            onPress={() => handlePress(action.label)}
+            onPress={() => handlePress(action)}
           >
             <View style={[s.qaAccent, { backgroundColor: action.colors[0] }]} />
 
@@ -845,7 +851,7 @@ const QuickActions = ({ role, s }) => {
 
 // ---------- SCREEN ----------
 
-const DashboardScreen = ({ route }) => {
+const DashboardScreen = ({ route, navigation }) => {
   const role = route?.params?.role || 'hod';
   const userName = route?.params?.name || 'User';
   const data = DASHBOARD_DATA[role] || DASHBOARD_DATA.hod;
@@ -1143,7 +1149,12 @@ const DashboardScreen = ({ route }) => {
           </View>
 
           {/* QUICK ACTIONS */}
-          <QuickActions role={role} s={s} />
+          <QuickActions
+            role={role}
+            s={s}
+            navigation={navigation}
+            routeParams={route?.params}
+          />
 
           <Text style={s.demoNote}>
             Sample data · live numbers appear once the database is connected
