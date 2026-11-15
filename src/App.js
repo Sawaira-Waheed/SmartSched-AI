@@ -27,7 +27,7 @@ const AUTH_SCREENS = {
   resetpassword: ResetPasswordScreen,
 };
 
-// Creates a placeholder screen with its own title, once at load time.
+// Creates a placeholder screen with its own title.
 const comingSoon = (title) => {
   const Screen = (props) => <ComingSoonScreen {...props} title={title} />;
   return Screen;
@@ -100,18 +100,22 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <View style={styles.root}>
-        <AppShell title={menuItem?.label || 'SmartSched AI'} onMenu={navigation.openDrawer}>
+        <AppShell
+          title={menuItem?.label || 'SmartSched AI'}
+          onMenu={navigation.openDrawer}
+        >
           <AppScreen navigation={navigation} route={{ params: current.params }} />
         </AppShell>
 
-        <DrawerMenu
-          open={drawerOpen}
-          session={activeSession}
-          activeKey={current.name}
-          onSelect={(item) => navigation.navigate(item.key, activeSession)}
-          onClose={navigation.closeDrawer}
-          onLogout={navigation.logout}
-        />
+        {drawerOpen && (
+          <DrawerMenu
+            session={activeSession}
+            activeKey={current.name}
+            onSelect={(item) => navigation.navigate(item.key, activeSession)}
+            onClose={navigation.closeDrawer}
+            onLogout={navigation.logout}
+          />
+        )}
       </View>
     </SafeAreaProvider>
   );
