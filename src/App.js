@@ -11,11 +11,11 @@ import OtpScreen from './screens/OtpScreen';
 import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import TimetableScreen from './screens/TimetableScreen';
+import FacultyScreen from './screens/FacultyScreen';
 import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
 import { MENU } from './navigation/menu';
-import FacultyScreen from './screens/FacultyScreen';
 
 // Screens shown before login. No top bar or drawer.
 const AUTH_SCREENS = {
@@ -26,7 +26,6 @@ const AUTH_SCREENS = {
   forgotpassword: ForgotPasswordScreen,
   otpverification: OtpScreen,
   resetpassword: ResetPasswordScreen,
-  faculty: FacultyScreen,
 };
 
 // Creates a placeholder screen with its own title.
@@ -39,7 +38,7 @@ const comingSoon = (title) => {
 const APP_SCREENS = {
   dashboard: DashboardScreen,
   timetable: TimetableScreen,
-  faculty: comingSoon('Faculty'),
+  faculty: FacultyScreen,
   availability: comingSoon('Availability'),
   courses: comingSoon('Courses'),
   sections: comingSoon('Sections'),
@@ -105,6 +104,8 @@ export default function App() {
         <AppShell
           title={menuItem?.label || 'SmartSched AI'}
           onMenu={navigation.openDrawer}
+          onHome={() => navigation.navigate('dashboard', activeSession)}
+          showHome={current.name !== 'dashboard'}
         >
           <AppScreen navigation={navigation} route={{ params: current.params }} />
         </AppShell>
