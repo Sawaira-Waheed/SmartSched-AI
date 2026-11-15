@@ -1,88 +1,118 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useTheme } from '../theme/theme';
 
 // Placeholder for modules that aren't built yet.
-const ComingSoonScreen = ({ title, navigation, route }) => (
-  <View style={styles.container}>
-    <View style={styles.card}>
-      <View style={styles.badge}>
-        <Text style={styles.badgeText}>NEXT UP</Text>
+const ComingSoonScreen = ({ title, navigation, route }) => {
+  const { c, shadow } = useTheme();
+  const styles = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.card}>
+        <View style={styles.bubble}>
+          <Text style={styles.sparkle}>✦</Text>
+        </View>
+
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>COMING SOON</Text>
+        </View>
+
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.text}>
+          This module is on the roadmap and will be added in a later step.
+        </Text>
+
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          onPress={() => navigation.navigate('dashboard', route?.params)}
+        >
+          <Text style={styles.buttonText}>Back to dashboard</Text>
+        </Pressable>
       </View>
-
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.text}>
-        This module is next in the build order. It will be added in a later step.
-      </Text>
-
-      <Pressable
-        style={styles.button}
-        onPress={() => navigation.navigate('dashboard', route?.params)}
-      >
-        <Text style={styles.buttonText}>Back to dashboard</Text>
-      </Pressable>
     </View>
-  </View>
-);
+  );
+};
 
 export default ComingSoonScreen;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#060A14',
-    justifyContent: 'center',
-    padding: 24,
-  },
+const makeStyles = (c, shadow) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.bg,
+      justifyContent: 'center',
+      padding: 24,
+    },
 
-  card: {
-    backgroundColor: '#0E1626',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#1C2A47',
-    padding: 24,
-    alignItems: 'center',
-  },
+    card: {
+      backgroundColor: c.surface,
+      borderRadius: 22,
+      padding: 26,
+      alignItems: 'center',
+      ...shadow,
+    },
 
-  badge: {
-    backgroundColor: 'rgba(79,124,255,0.18)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
+    bubble: {
+      width: 76,
+      height: 76,
+      borderRadius: 38,
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
 
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#8FA8FF',
-    letterSpacing: 1,
-  },
+    sparkle: {
+      fontSize: 30,
+      color: c.primary,
+    },
 
-  title: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginTop: 14,
-  },
+    badge: {
+      backgroundColor: c.pinkSoft,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+    },
 
-  text: {
-    fontSize: 13,
-    color: '#7D8AA6',
-    textAlign: 'center',
-    lineHeight: 19,
-    marginTop: 8,
-    marginBottom: 20,
-  },
+    badgeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: c.pink,
+      letterSpacing: 1,
+    },
 
-  button: {
-    backgroundColor: '#4F7CFF',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-  },
+    title: {
+      fontSize: 22,
+      fontWeight: '800',
+      color: c.text,
+      marginTop: 14,
+    },
 
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-});
+    text: {
+      fontSize: 13,
+      color: c.muted,
+      textAlign: 'center',
+      lineHeight: 20,
+      marginTop: 8,
+      marginBottom: 22,
+    },
+
+    button: {
+      backgroundColor: c.primary,
+      borderRadius: 16,
+      paddingVertical: 14,
+      paddingHorizontal: 22,
+    },
+
+    buttonPressed: {
+      opacity: 0.9,
+      transform: [{ scale: 0.98 }],
+    },
+
+    buttonText: {
+      color: c.white,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+  });

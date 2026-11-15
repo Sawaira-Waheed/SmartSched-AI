@@ -16,6 +16,7 @@ import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
 import { MENU } from './navigation/menu';
+import { ThemeProvider, useTheme } from './theme/theme';
 
 // Screens shown before login. No top bar or drawer.
 const AUTH_SCREENS = {
@@ -52,10 +53,56 @@ const APP_SCREENS = {
   settings: comingSoon('Settings'),
 };
 
+// Reads the theme, so it must render inside ThemeProvider.
+function Root({ current, activeSession, drawerOpen, navigation, onToggleMode }) {
+  const { c } = useTheme();
+
+  const AuthScreen = AUTH_SCREENS[current.name];
+  if (AuthScreen) {
+    return <AuthScreen navigation={navigation} route={{ params: current.params }} />;
+  }
+
+  const AppScreen = APP_SCREENS[current.name];
+  if (!AppScreen) {
+    return (
+      <View style={[styles.fallback, { backgroundColor: c.bg }]}>
+        <Text style={{ color: c.text }}>Unknown Screen: {current.name}</Text>
+      </View>
+    );
+  }
+
+  const menuItem = MENU.find((item) => item.key === current.name);
+
+  return (
+    <View style={[styles.root, { backgroundColor: c.bg }]}>
+      <AppShell
+        title={menuItem?.label || 'SmartSched AI'}
+        onMenu={navigation.openDrawer}
+        onHome={() => navigation.navigate('dashboard', activeSession)}
+        showHome={current.name !== 'dashboard'}
+        onToggleMode={onToggleMode}
+      >
+        <AppScreen navigation={navigation} route={{ params: current.params }} />
+      </AppShell>
+
+      {drawerOpen && (
+        <DrawerMenu
+          session={activeSession}
+          activeKey={current.name}
+          onSelect={(item) => navigation.navigate(item.key, activeSession)}
+          onClose={navigation.closeDrawer}
+          onLogout={navigation.logout}
+        />
+      )}
+    </View>
+  );
+}
+
 export default function App() {
   const [current, setCurrent] = useState({ name: 'splash', params: undefined });
   const [session, setSession] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [mode, setMode] = useState('light');
 
   const navigation = useMemo(() => {
     const go = (name, params) => {
@@ -79,47 +126,20 @@ export default function App() {
     };
   }, []);
 
-  // Fallback so the drawer always has a user to show
   const activeSession = session || { role: 'hod', name: 'User' };
-
-  const AuthScreen = AUTH_SCREENS[current.name];
-  if (AuthScreen) {
-    return <AuthScreen navigation={navigation} route={{ params: current.params }} />;
-  }
-
-  const AppScreen = APP_SCREENS[current.name];
-  if (!AppScreen) {
-    return (
-      <View style={styles.fallback}>
-        <Text>Unknown Screen: {current.name}</Text>
-      </View>
-    );
-  }
-
-  const menuItem = MENU.find((item) => item.key === current.name);
+  const toggleMode = () => setMode((m) => (m === 'light' ? 'dark' : 'light'));
 
   return (
     <SafeAreaProvider>
-      <View style={styles.root}>
-        <AppShell
-          title={menuItem?.label || 'SmartSched AI'}
-          onMenu={navigation.openDrawer}
-          onHome={() => navigation.navigate('dashboard', activeSession)}
-          showHome={current.name !== 'dashboard'}
-        >
-          <AppScreen navigation={navigation} route={{ params: current.params }} />
-        </AppShell>
-
-        {drawerOpen && (
-          <DrawerMenu
-            session={activeSession}
-            activeKey={current.name}
-            onSelect={(item) => navigation.navigate(item.key, activeSession)}
-            onClose={navigation.closeDrawer}
-            onLogout={navigation.logout}
-          />
-        )}
-      </View>
+      <ThemeProvider mode={mode}>
+        <Root
+          current={current}
+          activeSession={activeSession}
+          drawerOpen={drawerOpen}
+          navigation={navigation}
+          onToggleMode={toggleMode}
+        />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -127,7 +147,6 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#060A14',
   },
 
   fallback: {

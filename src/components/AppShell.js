@@ -1,17 +1,20 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/theme';
 
 // Top bar shown on every screen after login.
-const AppShell = ({ title, onMenu, children }) => {
+const AppShell = ({ title, onMenu, onHome, showHome = false, onToggleMode, children }) => {
   const insets = useSafeAreaInsets();
+  const { c, shadow, mode } = useTheme();
+  const styles = useMemo(() => makeStyles(c, shadow), [c, shadow]);
 
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable
           onPress={onMenu}
-          style={styles.menuButton}
+          style={styles.iconButton}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Open menu"
@@ -21,11 +24,36 @@ const AppShell = ({ title, onMenu, children }) => {
           <View style={styles.bar} />
         </Pressable>
 
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
+        <View style={styles.titleWrap}>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          <View style={styles.underline} />
+        </View>
 
-        <View style={styles.spacer} />
+        <View style={styles.rightGroup}>
+          {showHome ? (
+            <Pressable
+              onPress={onHome}
+              style={[styles.iconButton, styles.rightButton]}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Go to dashboard"
+            >
+              <Text style={styles.homeGlyph}>⌂</Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            onPress={onToggleMode}
+            style={[styles.iconButton, styles.rightButton]}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Switch theme"
+          >
+            <Text style={styles.themeGlyph}>{mode === 'light' ? '☾' : '☀'}</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.body}>{children}</View>
@@ -35,60 +63,90 @@ const AppShell = ({ title, onMenu, children }) => {
 
 export default AppShell;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#060A14',
-  },
+const makeStyles = (c, shadow) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.bg,
+    },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: '#0B1222',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1C2A47',
-  },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingBottom: 14,
+      backgroundColor: c.surface,
+      borderBottomLeftRadius: 22,
+      borderBottomRightRadius: 22,
+      ...shadow,
+    },
 
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#0E1626',
-    borderWidth: 1,
-    borderColor: '#1C2A47',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    iconButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
 
-  bar: {
-    width: 18,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: '#A9B6FF',
-    marginVertical: 2.5,
-  },
+    bar: {
+      width: 18,
+      height: 2.5,
+      borderRadius: 2,
+      backgroundColor: c.primary,
+      marginVertical: 2.5,
+    },
 
-  barShort: {
-    width: 12,
-  },
+    barShort: {
+      width: 12,
+    },
 
-  title: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginHorizontal: 10,
-  },
+    titleWrap: {
+      flex: 1,
+      alignItems: 'center',
+      marginHorizontal: 10,
+    },
 
-  spacer: {
-    width: 40,
-  },
+    title: {
+      fontSize: 17,
+      fontWeight: '800',
+      color: c.text,
+    },
 
-  body: {
-    flex: 1,
-  },
-});
+    underline: {
+      width: 26,
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: c.pink,
+      marginTop: 4,
+    },
+
+    rightGroup: {
+      width: 92,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+    },
+
+    rightButton: {
+      marginLeft: 8,
+    },
+
+    homeGlyph: {
+      fontSize: 20,
+      color: c.primary,
+      fontWeight: '700',
+    },
+
+    themeGlyph: {
+      fontSize: 17,
+      color: c.pink,
+      fontWeight: '700',
+    },
+
+    body: {
+      flex: 1,
+    },
+  });

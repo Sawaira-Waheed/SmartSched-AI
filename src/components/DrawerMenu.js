@@ -1,9 +1,17 @@
 import React from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Dimensions } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Dimensions,
+} from 'react-native';
 import { MENU } from '../navigation/menu';
+import { useTheme } from '../theme/theme';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const PANEL_W = Math.min(300, SCREEN_W * 0.8);
+const PANEL_W = Math.min(304, SCREEN_W * 0.82);
 
 const ROLE_LABEL = {
   registrar: 'REGISTRAR',
@@ -11,14 +19,19 @@ const ROLE_LABEL = {
   faculty: 'FACULTY',
 };
 
-// Simple drawer with no animation. It is only rendered while open.
+// Each menu item gets one of these accent colors, in order.
+const ACCENTS = ['primary', 'pink', 'mint', 'sky', 'amber'];
+
+// Rendered only while open. The parent unmounts it when closed.
 const DrawerMenu = ({ session, activeKey, onSelect, onClose, onLogout }) => {
+  const { c } = useTheme();
+  const styles = makeStyles(c);
+
   const items = MENU.filter((item) => item.roles.includes(session.role));
   const initial = session.name.charAt(0).toUpperCase();
 
   return (
     <View style={styles.root}>
-      {/* Dark area behind the drawer. Tapping it closes the drawer. */}
       <Pressable style={styles.overlay} onPress={onClose} />
 
       <View style={styles.panel}>
@@ -35,21 +48,26 @@ const DrawerMenu = ({ session, activeKey, onSelect, onClose, onLogout }) => {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          {items.map((item) => {
+          {items.map((item, index) => {
             const active = item.key === activeKey;
+            const accent = ACCENTS[index % ACCENTS.length];
+            const bubbleColor = active ? 'rgba(255,255,255,0.25)' : c[`${accent}Soft`];
+            const glyphColor = active ? c.white : c[accent];
+
             return (
               <Pressable
                 key={item.key}
                 onPress={() => onSelect(item)}
-                style={[styles.item, active && styles.itemActive]}
+                style={({ pressed }) => [
+                  styles.item,
+                  active && styles.itemActive,
+                  pressed && styles.itemPressed,
+                ]}
               >
-                {active && <View style={styles.activeBar} />}
-                <Text style={[styles.glyph, active && styles.glyphActive]}>
-                  {item.glyph}
-                </Text>
-                <Text style={[styles.label, active && styles.labelActive]}>
-                  {item.label}
-                </Text>
+                <View style={[styles.iconBubble, { backgroundColor: bubbleColor }]}>
+                  <Text style={[styles.glyph, { color: glyphColor }]}>{item.glyph}</Text>
+                </View>
+                <Text style={[styles.label, active && styles.labelActive]}>{item.label}</Text>
               </Pressable>
             );
           })}
@@ -65,142 +83,139 @@ const DrawerMenu = ({ session, activeKey, onSelect, onClose, onLogout }) => {
 
 export default DrawerMenu;
 
-const styles = StyleSheet.create({
-  root: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    elevation: 100,
-  },
+const makeStyles = (c) =>
+  StyleSheet.create({
+    root: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 100,
+      elevation: 100,
+    },
 
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
+    overlay: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: c.overlay,
+    },
 
-  panel: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: PANEL_W,
-    backgroundColor: '#0E1626',
-    paddingTop: 60,
-    paddingBottom: 28,
-    paddingHorizontal: 18,
-    borderRightWidth: 1,
-    borderColor: '#1C2A47',
-  },
+    panel: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      width: PANEL_W,
+      backgroundColor: c.surface,
+      paddingTop: 56,
+      paddingBottom: 28,
+      paddingHorizontal: 16,
+      borderTopRightRadius: 28,
+      borderBottomRightRadius: 28,
+    },
 
-  profile: {
-    marginBottom: 22,
-  },
+    profile: {
+      backgroundColor: c.primary,
+      borderRadius: 22,
+      padding: 16,
+      marginBottom: 18,
+    },
 
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#7C6BFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+    avatar: {
+      width: 54,
+      height: 54,
+      borderRadius: 27,
+      backgroundColor: c.white,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
 
-  avatarText: {
-    color: '#060A14',
-    fontSize: 20,
-    fontWeight: '800',
-  },
+    avatarText: {
+      color: c.primary,
+      fontSize: 22,
+      fontWeight: '800',
+    },
 
-  userName: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
-    marginTop: 12,
-  },
+    userName: {
+      color: c.white,
+      fontSize: 17,
+      fontWeight: '800',
+      marginTop: 12,
+    },
 
-  rolePill: {
-    alignSelf: 'flex-start',
-    marginTop: 8,
-    backgroundColor: 'rgba(79,124,255,0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(143,168,255,0.45)',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
+    rolePill: {
+      alignSelf: 'flex-start',
+      marginTop: 8,
+      backgroundColor: 'rgba(255,255,255,0.22)',
+      borderRadius: 20,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
 
-  roleText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#A9B6FF',
-    letterSpacing: 1,
-  },
+    roleText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: c.white,
+      letterSpacing: 1,
+    },
 
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    marginBottom: 6,
-  },
+    item: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 9,
+      paddingHorizontal: 10,
+      borderRadius: 16,
+      marginBottom: 6,
+    },
 
-  itemActive: {
-    backgroundColor: 'rgba(79,124,255,0.18)',
-  },
+    itemActive: {
+      backgroundColor: c.primary,
+    },
 
-  activeBar: {
-    position: 'absolute',
-    left: 0,
-    top: 10,
-    bottom: 10,
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: '#4F7CFF',
-  },
+    itemPressed: {
+      opacity: 0.85,
+    },
 
-  glyph: {
-    width: 26,
-    textAlign: 'center',
-    fontSize: 16,
-    color: '#7D8AA6',
-    marginRight: 10,
-  },
+    iconBubble: {
+      width: 38,
+      height: 38,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
 
-  glyphActive: {
-    color: '#8FA8FF',
-  },
+    glyph: {
+      fontSize: 16,
+      fontWeight: '800',
+    },
 
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#C9D2EA',
-  },
+    label: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: c.text,
+    },
 
-  labelActive: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
+    labelActive: {
+      color: c.white,
+      fontWeight: '800',
+    },
 
-  logout: {
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,92,122,0.4)',
-    alignItems: 'center',
-  },
+    logout: {
+      marginTop: 10,
+      paddingVertical: 14,
+      borderRadius: 16,
+      backgroundColor: c.redSoft,
+      alignItems: 'center',
+    },
 
-  logoutText: {
-    color: '#FF5C7A',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-});
+    logoutText: {
+      color: c.red,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+  });
