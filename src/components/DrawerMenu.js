@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -21,14 +21,22 @@ const ROLE_LABEL = {
 
 const DrawerMenu = ({ open, session, activeKey, onSelect, onClose, onLogout }) => {
   const anim = useRef(new Animated.Value(0)).current;
+  // Stays false while closed so it doesn't block the header button
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    if (open) setMounted(true);
+
     Animated.timing(anim, {
       toValue: open ? 1 : 0,
       duration: 260,
       useNativeDriver: true,
-    }).start();
+    }).start(({ finished }) => {
+      if (finished && !open) setMounted(false);
+    });
   }, [open, anim]);
+
+  if (!mounted) return null;
 
   const translateX = anim.interpolate({
     inputRange: [0, 1],
@@ -44,7 +52,7 @@ const DrawerMenu = ({ open, session, activeKey, onSelect, onClose, onLogout }) =
   const initial = session.name.charAt(0).toUpperCase();
 
   return (
-    <View style={styles.root} pointerEvents={open ? 'auto' : 'none'}>
+    <View style={styles.root}>
       <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
