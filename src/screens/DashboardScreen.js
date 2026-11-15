@@ -393,8 +393,10 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
         </View>
 
         {/* HERO */}
+                {/* HERO */}
         <View style={s.hero}>
           <View style={s.heroBlob} />
+
           <View style={s.heroTop}>
             <View style={s.rolePill}>
               <View style={s.roleDot} />
@@ -404,7 +406,7 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
           </View>
 
           <View style={s.heroBody}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
+            <View style={s.heroLeft}>
               <Text style={s.heroTitle}>{data.heroTitle}</Text>
               <View style={s.miniRow}>
                 {data.mini.map((m) => (
@@ -416,18 +418,22 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
               </View>
             </View>
 
-            <Donut
-              id="heroDonut"
-              value={data.heroValue}
-              size={116}
-              stroke={12}
-              gradient={c.grad.primary}
-              track="rgba(255,255,255,0.28)"
-            >
-              <Text style={s.donutValue}>{data.heroValue}%</Text>
-              <Text style={s.donutCaption}>{data.heroCaption}</Text>
-            </Donut>
+            <View style={s.ringWrap}>
+              <Donut
+                id="heroDonut"
+                value={data.heroValue}
+                size={104}
+                stroke={10}
+                gradient={c.grad.primary}
+                track="rgba(255,255,255,0.28)"
+              />
+              <View style={s.ringCenter} pointerEvents="none">
+                <Text style={s.donutValue}>{data.heroValue}%</Text>
+              </View>
+            </View>
           </View>
+
+          <Text style={s.heroCaption}>{data.heroCaption}</Text>
         </View>
 
         {/* OVERVIEW */}
@@ -665,7 +671,7 @@ const makeStyles = (c, shadow) =>
     avatarText: { color: c.white, fontSize: 17, fontWeight: '800' },
 
     // HERO
-    hero: {
+       hero: {
       marginHorizontal: 20,
       borderRadius: 28,
       padding: 20,
@@ -673,47 +679,38 @@ const makeStyles = (c, shadow) =>
       overflow: 'hidden',
       ...shadow,
     },
-    heroBlob: {
-      position: 'absolute',
-      width: 200,
-      height: 200,
-      borderRadius: 100,
-      backgroundColor: 'rgba(255,255,255,0.12)',
-      top: -70,
-      right: -60,
+    heroTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
     },
-    heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    rolePill: {
+    heroCaptionTop: { fontSize: 11, color: 'rgba(255,255,255,0.85)', fontWeight: '700' },
+    heroBody: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(255,255,255,0.22)',
-      borderRadius: 20,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      justifyContent: 'space-between',
+      marginTop: 14,
     },
-    roleDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.white, marginRight: 6 },
-    rolePillText: { fontSize: 10, fontWeight: '800', color: c.white, letterSpacing: 1 },
-    heroCaptionTop: { fontSize: 11, color: 'rgba(255,255,255,0.85)', fontWeight: '700' },
-    heroBody: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
+    heroLeft: { flex: 1, paddingRight: 12 },
     heroTitle: { fontSize: 18, fontWeight: '800', color: c.white },
-    miniRow: { flexDirection: 'row', marginTop: 16 },
-    miniItem: { marginRight: 18 },
-    miniValue: { fontSize: 20, fontWeight: '800', color: c.white },
-    miniLabel: { fontSize: 10, color: 'rgba(255,255,255,0.8)', fontWeight: '700', marginTop: 2 },
-    donutCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-    donutValue: { fontSize: 24, fontWeight: '800', color: c.white },
-    donutCaption: { fontSize: 9, color: 'rgba(255,255,255,0.85)', fontWeight: '700', marginTop: 2, textAlign: 'center', width: 70 },
-
-    sectionTitle: {
-      fontSize: 12,
-      fontWeight: '800',
-      color: c.muted,
-      letterSpacing: 1.2,
-      marginHorizontal: 22,
-      marginTop: 24,
-      marginBottom: 12,
+    heroCaption: {
+      fontSize: 11,
+      color: 'rgba(255,255,255,0.85)',
+      fontWeight: '700',
+      marginTop: 14,
     },
-
+    ringWrap: {
+      width: 104,
+      height: 104,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    ringCenter: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    donutValue: { fontSize: 22, fontWeight: '800', color: c.white },
     // STATS
     statsRow: { paddingHorizontal: 20, paddingRight: 8 },
     statCard: {
