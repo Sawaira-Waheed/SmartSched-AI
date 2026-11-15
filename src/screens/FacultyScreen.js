@@ -75,6 +75,11 @@ const FacultyScreen = () => {
     });
   };
 
+  const cancelForm = () => {
+    setErrors({});
+    setEditing(null);
+  };
+
   const validate = (v) => {
     const e = {};
     if (!v.name.trim()) e.name = 'Name is required';
@@ -102,6 +107,7 @@ const FacultyScreen = () => {
     } else {
       setList((prev) => [...prev, { id: `f${Date.now()}`, ...record }]);
     }
+    setErrors({});
     setEditing(null);
   };
 
@@ -127,8 +133,12 @@ const FacultyScreen = () => {
       setEditing((prev) => ({ ...prev, values: { ...prev.values, [key]: value } }));
 
     return (
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Pressable onPress={() => setEditing(null)} style={styles.backRow}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Pressable onPress={cancelForm} style={styles.backRow}>
           <Text style={styles.backText}>← Cancel</Text>
         </Pressable>
 
@@ -188,6 +198,10 @@ const FacultyScreen = () => {
         <Pressable style={styles.primaryButton} onPress={saveForm}>
           <Text style={styles.primaryButtonText}>{isNew ? 'Add faculty' : 'Save changes'}</Text>
         </Pressable>
+
+        <Pressable style={styles.secondaryButton} onPress={cancelForm}>
+          <Text style={styles.secondaryButtonText}>Cancel</Text>
+        </Pressable>
       </ScrollView>
     );
   }
@@ -202,7 +216,11 @@ const FacultyScreen = () => {
     const classes = TIMETABLE.filter((t) => t.facultyId === selected.id);
 
     return (
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <Pressable onPress={() => setSelectedId(null)} style={styles.backRow}>
           <Text style={styles.backText}>← All faculty</Text>
         </Pressable>
@@ -264,7 +282,11 @@ const FacultyScreen = () => {
   // ---------- LIST VIEW ----------
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={styles.scroll}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.headerRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Faculty</Text>
@@ -286,7 +308,12 @@ const FacultyScreen = () => {
         />
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterRow}
+        keyboardShouldPersistTaps="handled"
+      >
         {[{ id: 'all', name: 'All departments' }, ...DEPARTMENTS].map((d) => {
           const active = deptFilter === d.id;
           return (
@@ -552,4 +579,14 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   primaryButtonText: { color: C.white, fontSize: 15, fontWeight: '800' },
+
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  secondaryButtonText: { color: C.muted, fontSize: 14, fontWeight: '700' },
 });
