@@ -13,6 +13,8 @@ import DashboardScreen from './screens/DashboardScreen';
 import TimetableScreen from './screens/TimetableScreen';
 import FacultyScreen from './screens/FacultyScreen';
 import CoursesScreen from './screens/CoursesScreen';
+import SectionsScreen from './screens/SectionsScreen';
+import RoomsScreen from './screens/RoomsScreen';
 import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
@@ -43,8 +45,8 @@ const APP_SCREENS = {
   faculty: FacultyScreen,
   availability: comingSoon('Availability'),
   courses: CoursesScreen,
-  sections: comingSoon('Sections'),
-  rooms: comingSoon('Rooms'),
+  sections: SectionsScreen,
+  rooms: RoomsScreen,
   aischeduling: comingSoon('AI Scheduling'),
   conflicts: comingSoon('Conflicts'),
   notifications: comingSoon('Notifications'),
@@ -84,7 +86,7 @@ function Root({ mode, current, activeSession, drawerOpen, navigation, onToggleTh
       >
         <AppScreen
           navigation={navigation}
-          route={{ params: current.params }}
+          route={{ params: { ...current.params, role: activeSession.role, name: activeSession.name } }}
           themeMode={mode}
           onToggleTheme={onToggleTheme}
         />

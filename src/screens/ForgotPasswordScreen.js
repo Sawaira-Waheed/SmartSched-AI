@@ -1,129 +1,84 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  StatusBar,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-} from 'react-native';
-import InputField from '../components/InputField';
-import Button from '../components/Button';
-import BackButton from '../components/BackButton';
-import AppLogo from '../components/AppLogo';
-import Card from '../components/Card';
+import React, { useMemo, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useTheme } from '../theme/theme';
 
 const ForgotPasswordScreen = ({ navigation }) => {
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [errors, setErrors] = useState({});
+  const { c, shadow } = useTheme();
+  const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+
+  const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  const emailError = !submitted
+    ? ''
+    : !email.trim()
+      ? 'Email is required'
+      : !email.includes('@')
+        ? 'Enter a valid email'
+        : '';
 
   const handleContinue = () => {
     setSubmitted(true);
-    let newErrors = {};
-
-    if (!forgotEmail.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!forgotEmail.includes('@')) {
-      newErrors.email = 'Please enter valid email';
-    }
-
-    setErrors(newErrors);
-
-    if (Object.keys(newErrors).length === 0) {
-      // Go to OTP Screen
-      console.log('Continue with email:', forgotEmail);
-      navigation.navigate('OtpVerification', { email: forgotEmail });
-    }
+    if (!email.trim() || !email.includes('@')) return;
+    // TODO: send the reset code via the backend
+    navigation.navigate('otpverification', { email: email.trim() });
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F6FF" />
+    <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Pressable onPress={() => navigation.navigate('login')} style={s.backRow}>
+          <Text style={s.backText}>← Back to sign in</Text>
+        </Pressable>
 
-      <View style={styles.circleTop} />
-      <View style={styles.circleBottom} />
-
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.content}>
-          
-          {/* Back Button */}
-          <BackButton
-            onPress={() => navigation.navigate('login')}
-            text="Back to Sign In"
-          />
-
-          {/* Logo */}
-          <View style={styles.logoContainer}>
-            <AppLogo size="small" />
+        {/* ILLUSTRATION */}
+        <View style={s.iconWrap}>
+          <View style={s.iconBlob} />
+          <View style={s.iconBubble}>
+            <Text style={s.iconGlyph}>🔑</Text>
           </View>
-
-          {/* Heading */}
-          <Text style={styles.title}>Forgot your password?</Text>
-
-          <Text style={styles.subtitle}>
-            No worries. Enter your university email and we'll help{'\n'}
-            you reset your password.
-          </Text>
-
-          {/* Email Input */}
-          <InputField
-            label="University Email"
-            placeholder="Enter your university email"
-            value={forgotEmail}
-            onChangeText={(text) => {
-              setForgotEmail(text);
-              setSubmitted(false);
-            }}
-            error={errors.email}
-            icon="@"
-            keyboardType="email-address"
-          />
-
-          {/* Security Notice */}
-          <Card
-            icon="✓"
-            title="Secure password recovery"
-            message="A verification code will be sent to your registered university email."
-            type="info"
-          />
-
-          {/* Continue Button */}
-          <Button
-            text="Continue"
-            onPress={handleContinue}
-            style={styles.continueButton}
-          />
-
-          {/* Remember Password */}
-          <View style={styles.switchRow}>
-            <Text style={styles.switchText}>
-              Remember your password?
-            </Text>
-
-            <Pressable onPress={() => navigation.navigate('login')}>
-              <Text style={styles.switchLink}>Sign In</Text>
-            </Pressable>
-          </View>
-
-          {/* Security Footer */}
-          <View style={styles.securityRow}>
-            <Text style={styles.securityIcon}>🔒</Text>
-            <Text style={styles.securityText}>
-              Your account information is protected
-            </Text>
-          </View>
-
         </View>
+
+        <Text style={s.heading}>Forgot your password?</Text>
+        <Text style={s.subheading}>
+          No worries. Enter your university email and we'll send you a 6-digit code to reset it.
+        </Text>
+
+        <View style={s.card}>
+          <Text style={s.label}>University email</Text>
+          <View style={[s.inputWrap, emailError && s.inputWrapError]}>
+            <Text style={s.inputIcon}>@</Text>
+            <TextInput
+              style={s.input}
+              placeholder="name@uni.edu"
+              placeholderTextColor={c.muted}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          {emailError ? <Text style={s.errorText}>{emailError}</Text> : null}
+
+          <View style={s.noteBox}>
+            <Text style={s.noteIcon}>✓</Text>
+            <Text style={s.noteText}>The code is sent only to your registered university email.</Text>
+          </View>
+
+          <Pressable style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]} onPress={handleContinue}>
+            <Text style={s.primaryBtnText}>Send code</Text>
+          </Pressable>
+        </View>
+
+        <View style={s.footerRow}>
+          <Text style={s.footerText}>Remember your password?</Text>
+          <Pressable onPress={() => navigation.navigate('login')}>
+            <Text style={s.footerLink}> Sign in</Text>
+          </Pressable>
+        </View>
+
+        <Text style={s.security}>🔒 Your account information is protected</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -131,107 +86,78 @@ const ForgotPasswordScreen = ({ navigation }) => {
 
 export default ForgotPasswordScreen;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6FF',
-    overflow: 'hidden',
-  },
+const makeStyles = (c, shadow) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    scroll: { paddingHorizontal: 24, paddingTop: 18, paddingBottom: 40 },
+    pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 28,
-    paddingVertical: 28,
-  },
+    backRow: { marginBottom: 18 },
+    backText: { fontSize: 13, fontWeight: '800', color: c.primary },
 
-  circleTop: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: '#EEE9FF',
-    top: -120,
-    right: -80,
-  },
+    iconWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 22, height: 110 },
+    iconBlob: {
+      position: 'absolute',
+      width: 150,
+      height: 150,
+      borderRadius: 75,
+      backgroundColor: c.primarySoft,
+    },
+    iconBubble: {
+      width: 80,
+      height: 80,
+      borderRadius: 26,
+      backgroundColor: c.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadow,
+    },
+    iconGlyph: { fontSize: 34 },
 
-  circleBottom: {
-    position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: '#F0ECFF',
-    bottom: -100,
-    left: -80,
-  },
+    heading: { fontSize: 26, fontWeight: '800', color: c.text, textAlign: 'center' },
+    subheading: { fontSize: 13, color: c.muted, textAlign: 'center', lineHeight: 20, marginTop: 8, marginBottom: 24, paddingHorizontal: 6 },
 
-  content: {
-    width: '100%',
-    maxWidth: 430,
-    alignSelf: 'center',
-    paddingBottom: 35,
-  },
+    card: { backgroundColor: c.surface, borderRadius: 26, padding: 22, ...shadow },
+    label: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
+    inputWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.surfaceAlt,
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      height: 52,
+      borderWidth: 1.5,
+      borderColor: 'transparent',
+    },
+    inputWrapError: { borderColor: c.red },
+    inputIcon: { fontSize: 15, fontWeight: '800', color: c.primary, width: 22, textAlign: 'center' },
+    input: { flex: 1, color: c.text, fontSize: 14, paddingVertical: 0 },
+    errorText: { fontSize: 11, color: c.red, marginTop: 6, marginLeft: 4, fontWeight: '600' },
 
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
+    noteBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.mintSoft,
+      borderRadius: 16,
+      padding: 12,
+      marginTop: 16,
+    },
+    noteIcon: { fontSize: 14, fontWeight: '800', color: c.mint, marginRight: 8 },
+    noteText: { flex: 1, fontSize: 11, color: c.text, lineHeight: 16 },
 
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#24104F',
-    textAlign: 'center',
-  },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: 18,
+      paddingVertical: 16,
+      alignItems: 'center',
+      marginTop: 20,
+      ...shadow,
+    },
+    primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
 
-  subtitle: {
-    fontSize: 13,
-    color: '#77718A',
-    lineHeight: 20,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 30,
-    paddingHorizontal: 5,
-  },
+    footerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 24 },
+    footerText: { fontSize: 13, color: c.muted },
+    footerLink: { fontSize: 13, fontWeight: '800', color: c.primary },
 
-  continueButton: {
-    marginBottom: 22,
-  },
-
-  switchRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-
-  switchText: {
-    fontSize: 13,
-    color: '#77718A',
-  },
-
-  switchLink: {
-    marginLeft: 5,
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6C3BFF',
-  },
-
-  securityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E0EF',
-  },
-
-  securityIcon: {
-    fontSize: 14,
-    marginRight: 8,
-  },
-
-  securityText: {
-    fontSize: 12,
-    color: '#77718A',
-  },
-});
+    security: { fontSize: 11, color: c.muted, textAlign: 'center', marginTop: 24 },
+  });

@@ -18,7 +18,7 @@ export const MENU = [
   { key: 'availability', label: 'Availability', glyph: '◷', roles: EVERYONE },
   { key: 'courses', label: 'Courses', glyph: '▤', roles: ADMIN },
   { key: 'sections', label: 'Sections', glyph: '▥', roles: ADMIN },
-  { key: 'rooms', label: 'Rooms', glyph: '⌂', roles: [REGISTRAR] },
+  { key: 'rooms', label: 'Rooms', glyph: '⌂', roles: ADMIN },
   { key: 'aischeduling', label: 'AI Scheduling', glyph: '✦', roles: ADMIN },
   { key: 'conflicts', label: 'Conflicts', glyph: '!', roles: ADMIN },
   { key: 'notifications', label: 'Notifications', glyph: '◔', roles: EVERYONE },

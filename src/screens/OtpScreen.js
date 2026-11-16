@@ -1,190 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  StatusBar,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  TextInput,
-  Pressable,
-} from 'react-native';
-import Button from '../components/Button';
-import BackButton from '../components/BackButton';
-import AppLogo from '../components/AppLogo';
-import Card from '../components/Card';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useTheme } from '../theme/theme';
+
+const CODE_LENGTH = 6;
+const RESEND_SECONDS = 60;
 
 const OtpScreen = ({ navigation, route }) => {
-  const [otp, setOtp] = useState('');
-  const [otpTimer, setOtpTimer] = useState(60);
-  const [canResendOtp, setCanResendOtp] = useState(false);
-  const [errors, setErrors] = useState({});
+  const { c, shadow } = useTheme();
+  const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+
+  const email = route?.params?.email || 'your university email';
+  const [code, setCode] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(RESEND_SECONDS);
+  const inputRef = useRef(null);
 
-  // Get email from route params (passed from ForgotPasswordScreen)
-  const emailFromRoute = route?.params?.email || 'user@university.edu';
-
-  // Timer Effect
+  // Countdown for "resend code"
   useEffect(() => {
-    if (otpTimer > 0) {
-      const timer = setTimeout(() => {
-        setOtpTimer(otpTimer - 1);
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else if (otpTimer === 0) {
-      setCanResendOtp(true);
-    }
-  }, [otpTimer]);
+    if (secondsLeft <= 0) return undefined;
+    const timer = setTimeout(() => setSecondsLeft((n) => n - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [secondsLeft]);
 
-  const handleVerifyOtp = () => {
+  const error = !submitted
+    ? ''
+    : !code
+      ? 'Enter the 6-digit code'
+      : code.length !== CODE_LENGTH
+        ? 'The code must be 6 digits'
+        : '';
+
+  const handleVerify = () => {
     setSubmitted(true);
-    let newErrors = {};
-
-    if (!otp) {
-      newErrors.otp = 'OTP is required';
-    } else if (otp.length !== 6) {
-      newErrors.otp = 'OTP must be 6 digits';
-    }
-
-    setErrors(newErrors);
-
-    if (Object.keys(newErrors).length === 0) {
-      // Go to Reset Password Screen
-      console.log('OTP Verified:', otp);
-      navigation.navigate('ResetPassword');
-    }
+    if (code.length !== CODE_LENGTH) return;
+    // TODO: verify the code with the backend
+    navigation.navigate('resetpassword', { email });
   };
 
-  const handleResendOtp = () => {
-    setOtp('');
-    setOtpTimer(60);
-    setCanResendOtp(false);
+  const handleResend = () => {
+    if (secondsLeft > 0) return;
+    setCode('');
     setSubmitted(false);
-    console.log('OTP Resent to:', emailFromRoute);
+    setSecondsLeft(RESEND_SECONDS);
+    // TODO: request a new code from the backend
   };
+
+  const onChange = (text) => {
+    setCode(text.replace(/[^0-9]/g, '').slice(0, CODE_LENGTH));
+    setSubmitted(false);
+  };
+
+  // Show the code as six boxes, filled left to right
+  const digits = Array.from({ length: CODE_LENGTH }, (_, i) => code[i] || '');
+  const activeIndex = Math.min(code.length, CODE_LENGTH - 1);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F6FF" />
+    <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Pressable onPress={() => navigation.navigate('forgotpassword')} style={s.backRow}>
+          <Text style={s.backText}>← Change email</Text>
+        </Pressable>
 
-      <View style={styles.circleTop} />
-      <View style={styles.circleBottom} />
+        <View style={s.iconWrap}>
+          <View style={s.iconBlob} />
+          <View style={s.iconBubble}>
+            <Text style={s.iconGlyph}>✉</Text>
+          </View>
+        </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.content}>
-          
-          {/* Back Button */}
-          <BackButton
-            onPress={() => navigation.navigate('ForgotPassword')}
-            text="Back"
+        <Text style={s.heading}>Check your email</Text>
+        <Text style={s.subheading}>
+          We sent a 6-digit code to{'\n'}
+          <Text style={s.emailHighlight}>{email}</Text>
+        </Text>
+
+        <View style={s.card}>
+          <Text style={s.label}>Verification code</Text>
+
+          {/* Tapping the boxes focuses the hidden input */}
+          <Pressable style={s.boxRow} onPress={() => inputRef.current?.focus()}>
+            {digits.map((d, i) => {
+              const filled = i < code.length;
+              const focused = i === activeIndex && code.length < CODE_LENGTH;
+              return (
+                <View
+                  key={i}
+                  style={[
+                    s.box,
+                    filled && s.boxFilled,
+                    focused && s.boxFocused,
+                    error && s.boxError,
+                  ]}
+                >
+                  <Text style={[s.boxText, filled && s.boxTextFilled]}>{d}</Text>
+                </View>
+              );
+            })}
+          </Pressable>
+
+          <TextInput
+            ref={inputRef}
+            value={code}
+            onChangeText={onChange}
+            keyboardType="number-pad"
+            maxLength={CODE_LENGTH}
+            style={s.hiddenInput}
+            autoFocus
           />
 
-          {/* Logo */}
-          <View style={styles.logoContainer}>
-            <AppLogo size="small" />
-          </View>
+          {error ? <Text style={s.errorText}>{error}</Text> : null}
 
-          {/* Heading */}
-          <Text style={styles.title}>Verify your email</Text>
+          <Pressable style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]} onPress={handleVerify}>
+            <Text style={s.primaryBtnText}>Verify code</Text>
+          </Pressable>
 
-          <Text style={styles.subtitle}>
-            We've sent a 6-digit code to{'\n'}
-            <Text style={styles.emailHighlight}>
-              {emailFromRoute}
-            </Text>
-          </Text>
-
-          {/* OTP Input */}
-          <View style={styles.otpInputGroup}>
-            <Text style={styles.label}>Verification Code</Text>
-
-            <TextInput
-              style={[
-                styles.otpInputField,
-                submitted && (!otp || otp.length !== 6) && styles.otpInputError,
-              ]}
-              placeholder="000000"
-              placeholderTextColor="#A6A0B5"
-              value={otp}
-              onChangeText={(text) => {
-                // Only allow numbers
-                const numericText = text.replace(/[^0-9]/g, '');
-                if (numericText.length <= 6) {
-                  setOtp(numericText);
-                  setSubmitted(false);
-                }
-              }}
-              keyboardType="number-pad"
-              maxLength={6}
-            />
-
-            {submitted && !otp && (
-              <Text style={styles.errorText}>
-                Verification code is required.
+          <View style={s.resendRow}>
+            {secondsLeft > 0 ? (
+              <Text style={s.resendText}>
+                Resend code in <Text style={s.resendTimer}>{String(secondsLeft).padStart(2, '0')}s</Text>
               </Text>
-            )}
-
-            {submitted && otp && otp.length !== 6 && (
-              <Text style={styles.errorText}>
-                Code must be 6 digits.
-              </Text>
-            )}
-          </View>
-
-          {/* Timer & Resend */}
-          <View style={styles.timerSection}>
-            {otpTimer > 0 ? (
-              <View style={styles.timerBox}>
-                <Text style={styles.timerText}>Resend code in</Text>
-                <Text style={styles.timerCount}>
-                  {String(otpTimer).padStart(2, '0')}s
-                </Text>
-              </View>
             ) : (
-              <Pressable
-                style={styles.resendButton}
-                onPress={handleResendOtp}
-                disabled={!canResendOtp}
-              >
-                <Text style={styles.resendText}>
-                  Didn't receive code?{' '}
-                  <Text style={styles.resendLink}>Resend</Text>
+              <Pressable onPress={handleResend} hitSlop={8}>
+                <Text style={s.resendText}>
+                  Didn't get it? <Text style={s.resendLink}>Resend code</Text>
                 </Text>
               </Pressable>
             )}
           </View>
+        </View>
 
-          {/* Info Card */}
-          <Card
-            icon="ℹ️"
-            title="Check spam folder"
-            message="If you don't see the email, check your spam or junk folder."
-            type="info"
-          />
+        <View style={s.tipBox}>
+          <Text style={s.tipText}>Check your spam or junk folder if the email doesn't arrive.</Text>
+        </View>
 
-          {/* Verify Button */}
-          <Button
-            text="Verify Code"
-            onPress={handleVerifyOtp}
-            style={styles.verifyButton}
-          />
-
-          {/* Back to Sign In */}
-          <View style={styles.otpBackRow}>
-            <Text style={styles.otpBackText}>Back to</Text>
-            <Pressable onPress={() => navigation.navigate('login')}>
-              <Text style={styles.otpBackLink}>Sign In</Text>
-            </Pressable>
-          </View>
-
+        <View style={s.footerRow}>
+          <Text style={s.footerText}>Back to</Text>
+          <Pressable onPress={() => navigation.navigate('login')}>
+            <Text style={s.footerLink}> Sign in</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -193,167 +146,74 @@ const OtpScreen = ({ navigation, route }) => {
 
 export default OtpScreen;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6FF',
-    overflow: 'hidden',
-  },
+const makeStyles = (c, shadow) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    scroll: { paddingHorizontal: 24, paddingTop: 18, paddingBottom: 40 },
+    pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 28,
-    paddingVertical: 28,
-  },
+    backRow: { marginBottom: 18 },
+    backText: { fontSize: 13, fontWeight: '800', color: c.primary },
 
-  circleTop: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: '#EEE9FF',
-    top: -120,
-    right: -80,
-  },
+    iconWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 22, height: 110 },
+    iconBlob: { position: 'absolute', width: 150, height: 150, borderRadius: 75, backgroundColor: c.skySoft },
+    iconBubble: {
+      width: 80,
+      height: 80,
+      borderRadius: 26,
+      backgroundColor: c.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadow,
+    },
+    iconGlyph: { fontSize: 34, color: c.sky, fontWeight: '800' },
 
-  circleBottom: {
-    position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: '#F0ECFF',
-    bottom: -100,
-    left: -80,
-  },
+    heading: { fontSize: 26, fontWeight: '800', color: c.text, textAlign: 'center' },
+    subheading: { fontSize: 13, color: c.muted, textAlign: 'center', lineHeight: 20, marginTop: 8, marginBottom: 24 },
+    emailHighlight: { fontWeight: '800', color: c.primary },
 
-  content: {
-    width: '100%',
-    maxWidth: 430,
-    alignSelf: 'center',
-    paddingBottom: 35,
-  },
+    card: { backgroundColor: c.surface, borderRadius: 26, padding: 22, ...shadow },
+    label: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 14, textAlign: 'center' },
 
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
+    boxRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    box: {
+      width: 46,
+      height: 56,
+      borderRadius: 16,
+      backgroundColor: c.surfaceAlt,
+      borderWidth: 1.5,
+      borderColor: 'transparent',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    boxFilled: { backgroundColor: c.primarySoft, borderColor: c.primary },
+    boxFocused: { borderColor: c.primary },
+    boxError: { borderColor: c.red },
+    boxText: { fontSize: 22, fontWeight: '800', color: c.muted },
+    boxTextFilled: { color: c.primary },
 
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#24104F',
-    textAlign: 'center',
-  },
+    hiddenInput: { position: 'absolute', opacity: 0, height: 1, width: 1 },
+    errorText: { fontSize: 11, color: c.red, marginTop: 10, textAlign: 'center', fontWeight: '600' },
 
-  subtitle: {
-    fontSize: 13,
-    color: '#77718A',
-    lineHeight: 20,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 30,
-    paddingHorizontal: 5,
-  },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: 18,
+      paddingVertical: 16,
+      alignItems: 'center',
+      marginTop: 22,
+      ...shadow,
+    },
+    primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
 
-  emailHighlight: {
-    fontWeight: '700',
-    color: '#6C3BFF',
-  },
+    resendRow: { alignItems: 'center', marginTop: 16 },
+    resendText: { fontSize: 12, color: c.muted },
+    resendTimer: { fontWeight: '800', color: c.primary },
+    resendLink: { fontWeight: '800', color: c.primary },
 
-  otpInputGroup: {
-    marginBottom: 24,
-  },
+    tipBox: { backgroundColor: c.amberSoft, borderRadius: 16, padding: 14, marginTop: 16 },
+    tipText: { fontSize: 11, color: c.text, lineHeight: 17, textAlign: 'center' },
 
-  label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#3B3151',
-    marginBottom: 8,
-  },
-
-  otpInputField: {
-    height: 60,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    borderColor: '#E5E0EF',
-    borderRadius: 15,
-    paddingHorizontal: 15,
-    fontSize: 28,
-    fontWeight: '600',
-    color: '#24104F',
-    letterSpacing: 8,
-    textAlign: 'center',
-  },
-
-  otpInputError: {
-    borderColor: '#C5B9E8',
-    backgroundColor: '#FCFAFF',
-  },
-
-  errorText: {
-    fontSize: 10,
-    color: '#8A78A8',
-    marginTop: 6,
-    marginLeft: 3,
-  },
-
-  timerSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-    minHeight: 60,
-    justifyContent: 'center',
-  },
-
-  timerBox: {
-    alignItems: 'center',
-  },
-
-  timerText: {
-    fontSize: 12,
-    color: '#77718A',
-    marginBottom: 4,
-  },
-
-  timerCount: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#6C3BFF',
-  },
-
-  resendButton: {
-    paddingVertical: 10,
-  },
-
-  resendText: {
-    fontSize: 12,
-    color: '#77718A',
-    textAlign: 'center',
-  },
-
-  resendLink: {
-    fontWeight: '800',
-    color: '#6C3BFF',
-  },
-
-  verifyButton: {
-    marginBottom: 22,
-  },
-
-  otpBackRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  otpBackText: {
-    fontSize: 13,
-    color: '#77718A',
-  },
-
-  otpBackLink: {
-    marginLeft: 5,
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6C3BFF',
-  },
-});
+    footerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 22 },
+    footerText: { fontSize: 13, color: c.muted },
+    footerLink: { fontSize: 13, fontWeight: '800', color: c.primary },
+  });
