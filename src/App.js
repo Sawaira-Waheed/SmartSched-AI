@@ -19,6 +19,9 @@ import AvailabilityScreen from './screens/AvailabilityScreen';
 import ConflictsScreen from './screens/ConflictsScreen';
 import AiSchedulingScreen from './screens/AiSchedulingScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
+import AuditLogsScreen from './screens/AuditLogsScreen';
+import ProfileScreen from './screens/ProfileScreen';
+import SettingsScreen from './screens/SettingsScreen';
 import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
@@ -55,9 +58,9 @@ const APP_SCREENS = {
   conflicts: ConflictsScreen,
   notifications: NotificationsScreen,
   reports: comingSoon('Reports'),
-  audit: comingSoon('Audit Logs'),
-  profile: comingSoon('Profile'),
-  settings: comingSoon('Settings'),
+  audit: AuditLogsScreen,
+  profile: ProfileScreen,
+  settings: SettingsScreen,
 };
 
 // Reads the theme, so it must render inside ThemeProvider.
