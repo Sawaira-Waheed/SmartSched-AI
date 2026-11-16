@@ -30,6 +30,8 @@ const OtpScreen = ({ navigation, route }) => {
         ? 'The code must be 6 digits'
         : '';
 
+  const changeEmail = () => navigation.navigate('forgotpassword');
+
   const handleVerify = () => {
     setSubmitted(true);
     if (code.length !== CODE_LENGTH) return;
@@ -57,7 +59,8 @@ const OtpScreen = ({ navigation, route }) => {
   return (
     <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <Pressable onPress={() => navigation.navigate('forgotpassword')} style={s.backRow}>
+        {/* TOP LINK: larger tap area */}
+        <Pressable onPress={changeEmail} hitSlop={14} style={s.backRow}>
           <Text style={s.backText}>← Change email</Text>
         </Pressable>
 
@@ -83,15 +86,7 @@ const OtpScreen = ({ navigation, route }) => {
               const filled = i < code.length;
               const focused = i === activeIndex && code.length < CODE_LENGTH;
               return (
-                <View
-                  key={i}
-                  style={[
-                    s.box,
-                    filled && s.boxFilled,
-                    focused && s.boxFocused,
-                    error && s.boxError,
-                  ]}
-                >
+                <View key={i} style={[s.box, filled && s.boxFilled, focused && s.boxFocused, error && s.boxError]}>
                   <Text style={[s.boxText, filled && s.boxTextFilled]}>{d}</Text>
                 </View>
               );
@@ -105,13 +100,17 @@ const OtpScreen = ({ navigation, route }) => {
             keyboardType="number-pad"
             maxLength={CODE_LENGTH}
             style={s.hiddenInput}
-            autoFocus
           />
 
           {error ? <Text style={s.errorText}>{error}</Text> : null}
 
           <Pressable style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]} onPress={handleVerify}>
             <Text style={s.primaryBtnText}>Verify code</Text>
+          </Pressable>
+
+          {/* SECOND WAY TO CHANGE EMAIL */}
+          <Pressable onPress={changeEmail} hitSlop={10} style={s.changeEmailBtn}>
+            <Text style={s.changeEmailText}>Wrong email? Change it</Text>
           </Pressable>
 
           <View style={s.resendRow}>
@@ -135,7 +134,7 @@ const OtpScreen = ({ navigation, route }) => {
 
         <View style={s.footerRow}>
           <Text style={s.footerText}>Back to</Text>
-          <Pressable onPress={() => navigation.navigate('login')}>
+          <Pressable onPress={() => navigation.navigate('login')} hitSlop={8}>
             <Text style={s.footerLink}> Sign in</Text>
           </Pressable>
         </View>
@@ -152,7 +151,7 @@ const makeStyles = (c, shadow) =>
     scroll: { paddingHorizontal: 24, paddingTop: 18, paddingBottom: 40 },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
-    backRow: { marginBottom: 18 },
+    backRow: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 4, marginBottom: 12 },
     backText: { fontSize: 13, fontWeight: '800', color: c.primary },
 
     iconWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 22, height: 110 },
@@ -195,17 +194,13 @@ const makeStyles = (c, shadow) =>
     hiddenInput: { position: 'absolute', opacity: 0, height: 1, width: 1 },
     errorText: { fontSize: 11, color: c.red, marginTop: 10, textAlign: 'center', fontWeight: '600' },
 
-    primaryBtn: {
-      backgroundColor: c.primary,
-      borderRadius: 18,
-      paddingVertical: 16,
-      alignItems: 'center',
-      marginTop: 22,
-      ...shadow,
-    },
+    primaryBtn: { backgroundColor: c.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginTop: 22, ...shadow },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
 
-    resendRow: { alignItems: 'center', marginTop: 16 },
+    changeEmailBtn: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 12, marginTop: 4 },
+    changeEmailText: { fontSize: 12, fontWeight: '800', color: c.sky },
+
+    resendRow: { alignItems: 'center', marginTop: 8 },
     resendText: { fontSize: 12, color: c.muted },
     resendTimer: { fontWeight: '800', color: c.primary },
     resendLink: { fontWeight: '800', color: c.primary },
