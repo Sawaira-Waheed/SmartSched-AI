@@ -1,28 +1,32 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
-import { FACULTY, DEPARTMENTS, COURSES, SECTIONS, TIMETABLE } from '../data/sampleData';
+import { FACULTY, DEPARTMENTS, TIMETABLE } from '../data/sampleData';
 import { useTheme } from '../theme/theme';
+import { getAccess, inScope } from '../utils/permissions';
 
 const EMPTY_FORM = { name: '', email: '', departmentId: '', maxHoursPerWeek: '' };
 
-// Hours per week = total minutes of this teacher's classes / 60
+const classesOf = (facultyId) => TIMETABLE.filter((t) => t.facultyId === facultyId);
+
 const weeklyHours = (facultyId) =>
-  TIMETABLE.filter((t) => t.facultyId === facultyId).reduce((sum, t) => sum + t.durationMins, 0) / 60;
+  classesOf(facultyId).reduce((sum, t) => sum + t.durationMins, 0) / 60;
 
 const deptName = (id) => DEPARTMENTS.find((d) => d.id === id)?.name || 'Unassigned';
 
 const initialOf = (name) => name.replace(/^(Dr\.|Ms\.|Mr\.|Prof\.)\s*/, '').charAt(0).toUpperCase();
 
-// Color for a load level: green when comfortable, amber when close, red when over.
 const loadTone = (hours, max, c) => {
   if (hours > max) return { color: c.red, soft: c.redSoft, label: 'Overloaded' };
   if (hours / max > 0.85) return { color: c.amber, soft: c.amberSoft, label: 'Near limit' };
   return { color: c.mint, soft: c.mintSoft, label: 'Comfortable' };
 };
 
-const FacultyScreen = () => {
+const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+
+const FacultyScreen = ({ route }) => {
   const { c, shadow } = useTheme();
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+  const access = getAccess(route?.params);
 
   const [list, setList] = useState(FACULTY);
   const [query, setQuery] = useState('');
@@ -31,25 +35,33 @@ const FacultyScreen = () => {
   const [editing, setEditing] = useState(null); // null, or { id: string|null, values: {...} }
   const [errors, setErrors] = useState({});
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return list.filter((f) => {
-      const matchesDept = deptFilter === 'all' || f.departmentId === deptFilter;
-      const matchesQuery = !q || f.name.toLowerCase().includes(q) || f.email.toLowerCase().includes(q);
-      return matchesDept && matchesQuery;
-    });
-  }, [list, query, deptFilter]);
+  // Only the teachers this user is allowed to see
+  const scoped = list.filter((f) => inScope(access, f));
 
-  const selected = list.find((f) => f.id === selectedId);
+  const q = query.trim().toLowerCase();
+  const filtered = scoped.filter((f) => {
+    const matchesDept = !access.canChooseDept || deptFilter === 'all' || f.departmentId === deptFilter;
+    const matchesQuery = !q || f.name.toLowerCase().includes(q) || f.email.toLowerCase().includes(q);
+    return matchesDept && matchesQuery;
+  });
+
+  const selected = scoped.find((f) => f.id === selectedId);
+  const overloaded = scoped.filter((f) => weeklyHours(f.id) > f.maxHoursPerWeek).length;
+  const totalClasses = scoped.reduce((sum, f) => sum + classesOf(f.id).length, 0);
 
   // ---------- ACTIONS ----------
 
   const openAdd = () => {
+    if (!access.canEdit) return;
     setErrors({});
-    setEditing({ id: null, values: { ...EMPTY_FORM } });
+    setEditing({
+      id: null,
+      values: { ...EMPTY_FORM, departmentId: access.canChooseDept ? '' : access.departmentId },
+    });
   };
 
   const openEdit = (faculty) => {
+    if (!access.canEdit || !inScope(access, faculty)) return;
     setErrors({});
     setEditing({
       id: faculty.id,
@@ -71,13 +83,18 @@ const FacultyScreen = () => {
     const e = {};
     if (!v.name.trim()) e.name = 'Name is required';
     if (!v.email.includes('@')) e.email = 'Enter a valid email';
-    if (!v.departmentId) e.departmentId = 'Choose a department';
+    if (!v.departmentId) {
+      e.departmentId = 'Choose a department';
+    } else if (!access.canChooseDept && v.departmentId !== access.departmentId) {
+      e.departmentId = 'You can only manage your own department';
+    }
     const hours = Number(v.maxHoursPerWeek);
     if (!hours || hours < 1 || hours > 40) e.maxHoursPerWeek = 'Enter hours between 1 and 40';
     return e;
   };
 
   const saveForm = () => {
+    if (!access.canEdit) return;
     const found = validate(editing.values);
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -99,6 +116,19 @@ const FacultyScreen = () => {
   };
 
   const confirmDelete = (faculty) => {
+    if (!access.canEdit || !inScope(access, faculty)) return;
+
+    const assigned = classesOf(faculty.id).length;
+    if (assigned > 0) {
+      Alert.alert(
+        'Cannot delete yet',
+        `${faculty.name} teaches ${assigned} class${assigned > 1 ? 'es' : ''}. Reassign ${
+          assigned > 1 ? 'them' : 'it'
+        } in Timetable first.`,
+      );
+      return;
+    }
+
     Alert.alert('Delete faculty', `Remove ${faculty.name} from the system?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -151,16 +181,23 @@ const FacultyScreen = () => {
         </Field>
 
         <Field s={s} label="Department" error={errors.departmentId}>
-          <View style={s.chipWrap}>
-            {DEPARTMENTS.map((d) => {
-              const active = editing.values.departmentId === d.id;
-              return (
-                <Pressable key={d.id} onPress={() => set('departmentId')(d.id)} style={[s.chip, active && s.chipActive]}>
-                  <Text style={[s.chipText, active && s.chipTextActive]}>{d.name}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {access.canChooseDept ? (
+            <View style={s.chipWrap}>
+              {DEPARTMENTS.map((d) => {
+                const active = editing.values.departmentId === d.id;
+                return (
+                  <Pressable key={d.id} onPress={() => set('departmentId')(d.id)} style={[s.chip, active && s.chipActive]}>
+                    <Text style={[s.chipText, active && s.chipTextActive]}>{d.name}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={s.lockedBox}>
+              <Text style={s.lockedText}>{deptName(access.departmentId)}</Text>
+              <Text style={s.lockedHint}>Your department. Teachers are added here only.</Text>
+            </View>
+          )}
         </Field>
 
         <Field s={s} label="Max hours per week" error={errors.maxHoursPerWeek}>
@@ -192,10 +229,9 @@ const FacultyScreen = () => {
     const max = selected.maxHoursPerWeek;
     const percent = Math.min((hours / max) * 100, 100);
     const tone = loadTone(hours, max, c);
-    const classes = TIMETABLE.filter((t) => t.facultyId === selected.id).sort((a, b) => {
-      const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-      return order.indexOf(a.day) - order.indexOf(b.day) || a.start.localeCompare(b.start);
-    });
+    const classes = classesOf(selected.id).sort(
+      (a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day) || a.start.localeCompare(b.start),
+    );
 
     return (
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -203,7 +239,6 @@ const FacultyScreen = () => {
           <Text style={s.backText}>← All faculty</Text>
         </Pressable>
 
-        {/* PROFILE */}
         <View style={s.profileWrap}>
           <View style={s.avatarLg}>
             <Text style={s.avatarLgText}>{initialOf(selected.name)}</Text>
@@ -219,7 +254,6 @@ const FacultyScreen = () => {
           </Text>
         </View>
 
-        {/* LOAD */}
         <View style={s.card}>
           <View style={s.rowBetween}>
             <Text style={s.cardTitle}>Weekly load</Text>
@@ -238,7 +272,6 @@ const FacultyScreen = () => {
           </View>
         </View>
 
-        {/* CLASSES */}
         <Text style={s.sectionLabel}>ASSIGNED CLASSES</Text>
         {classes.length === 0 ? (
           <View style={s.emptyCard}>
@@ -246,8 +279,8 @@ const FacultyScreen = () => {
           </View>
         ) : (
           classes.map((t) => {
-            const course = COURSES.find((co) => co.id === t.courseId);
-            const section = SECTIONS.find((sec) => sec.id === t.sectionId);
+            const course = COURSES_BY_ID[t.courseId];
+            const sectionName = SECTIONS_BY_ID[t.sectionId];
             return (
               <View key={t.id} style={s.classCard}>
                 <View style={s.dayBadge}>
@@ -255,10 +288,10 @@ const FacultyScreen = () => {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.classTitle} numberOfLines={1}>
-                    {course?.name}
+                    {course || 'Course'}
                   </Text>
                   <Text style={s.classMeta} numberOfLines={1}>
-                    {t.start} · {t.durationMins} min · {section?.name} · Room {t.roomId}
+                    {t.start} · {t.durationMins} min · {sectionName} · Room {t.roomId}
                   </Text>
                 </View>
               </View>
@@ -266,45 +299,55 @@ const FacultyScreen = () => {
           })
         )}
 
-        {/* ACTIONS */}
-        <View style={s.actionRow}>
-          <Pressable style={[s.actionBtn, { backgroundColor: c.primary }]} onPress={() => openEdit(selected)}>
-            <Text style={[s.actionText, { color: c.white }]}>Edit</Text>
-          </Pressable>
-          <Pressable style={[s.actionBtn, { backgroundColor: c.redSoft }]} onPress={() => confirmDelete(selected)}>
-            <Text style={[s.actionText, { color: c.red }]}>Delete</Text>
-          </Pressable>
-        </View>
+        {access.canEdit ? (
+          <View style={s.actionRow}>
+            <Pressable style={[s.actionBtn, { backgroundColor: c.primary }]} onPress={() => openEdit(selected)}>
+              <Text style={[s.actionText, { color: c.white }]}>Edit</Text>
+            </Pressable>
+            <Pressable style={[s.actionBtn, { backgroundColor: c.redSoft }]} onPress={() => confirmDelete(selected)}>
+              <Text style={[s.actionText, { color: c.red }]}>Delete</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={s.viewOnly}>View only. Your role can't change teacher records.</Text>
+        )}
       </ScrollView>
     );
   }
 
   // ---------- LIST VIEW ----------
 
-  const overloaded = list.filter((f) => weeklyHours(f.id) > f.maxHoursPerWeek).length;
-  const totalClasses = list.reduce((sum, f) => sum + TIMETABLE.filter((t) => t.facultyId === f.id).length, 0);
-
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-      {/* HEADER */}
       <View style={s.headerRow}>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>Faculty</Text>
           <Text style={s.subtitle}>Teachers, workload and assignments</Text>
         </View>
-        <Pressable style={s.addBtn} onPress={openAdd}>
-          <Text style={s.addBtnText}>+ Add</Text>
-        </Pressable>
+        {access.canEdit ? (
+          <Pressable style={s.addBtn} onPress={openAdd}>
+            <Text style={s.addBtnText}>+ Add</Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      {/* STATS */}
+      {access.canChooseDept ? null : (
+        <View style={s.scopeBanner}>
+          <Text style={s.scopeTitle}>{deptName(access.departmentId)}</Text>
+          <Text style={s.scopeText}>
+            {access.canEdit
+              ? 'You can add, edit and remove teachers in your department.'
+              : 'View only. Showing teachers in your department.'}
+          </Text>
+        </View>
+      )}
+
       <View style={s.statsRow}>
-        <StatTile s={s} value={list.length} label="Teachers" colorKey={c.primary} />
-        <StatTile s={s} value={totalClasses} label="Classes" colorKey={c.sky} />
-        <StatTile s={s} value={overloaded} label="Overloaded" colorKey={overloaded ? c.red : c.mint} />
+        <StatTile s={s} value={scoped.length} label="Teachers" color={c.primary} />
+        <StatTile s={s} value={totalClasses} label="Classes" color={c.sky} />
+        <StatTile s={s} value={overloaded} label="Overloaded" color={overloaded ? c.red : c.mint} />
       </View>
 
-      {/* SEARCH */}
       <View style={s.searchBox}>
         <Text style={s.searchIcon}>⌕</Text>
         <TextInput
@@ -316,19 +359,19 @@ const FacultyScreen = () => {
         />
       </View>
 
-      {/* DEPARTMENT FILTER */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow} keyboardShouldPersistTaps="handled">
-        {[{ id: 'all', name: 'All departments' }, ...DEPARTMENTS].map((d) => {
-          const active = deptFilter === d.id;
-          return (
-            <Pressable key={d.id} onPress={() => setDeptFilter(d.id)} style={[s.chip, active && s.chipActive]}>
-              <Text style={[s.chipText, active && s.chipTextActive]}>{d.name}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {access.canChooseDept ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow} keyboardShouldPersistTaps="handled">
+          {[{ id: 'all', name: 'All departments' }, ...DEPARTMENTS].map((d) => {
+            const active = deptFilter === d.id;
+            return (
+              <Pressable key={d.id} onPress={() => setDeptFilter(d.id)} style={[s.chip, active && s.chipActive]}>
+                <Text style={[s.chipText, active && s.chipTextActive]}>{d.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
-      {/* LIST */}
       {filtered.length === 0 ? (
         <View style={s.emptyCard}>
           <Text style={s.emptyText}>No faculty match your search.</Text>
@@ -376,9 +419,9 @@ const FacultyScreen = () => {
   );
 };
 
-const StatTile = ({ s, value, label, colorKey }) => (
+const StatTile = ({ s, value, label, color }) => (
   <View style={s.statTile}>
-    <Text style={[s.statValue, { color: colorKey }]}>{value}</Text>
+    <Text style={[s.statValue, { color }]}>{value}</Text>
     <Text style={s.statLabel} numberOfLines={1}>
       {label}
     </Text>
@@ -395,6 +438,11 @@ const Field = ({ s, label, error, children }) => (
 
 export default FacultyScreen;
 
+// Lookups used in the details view
+import { COURSES, SECTIONS } from '../data/sampleData';
+const COURSES_BY_ID = Object.fromEntries(COURSES.map((co) => [co.id, co.name]));
+const SECTIONS_BY_ID = Object.fromEntries(SECTIONS.map((sec) => [sec.id, sec.name]));
+
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
@@ -404,17 +452,20 @@ const makeStyles = (c, shadow) =>
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3 },
 
-    headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    addBtn: {
-      backgroundColor: c.primary,
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      paddingVertical: 11,
-      ...shadow,
-    },
+    headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+    addBtn: { backgroundColor: c.primary, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 11, ...shadow },
     addBtnText: { color: c.white, fontSize: 13, fontWeight: '800' },
 
-    // STATS
+    scopeBanner: {
+      backgroundColor: c.primarySoft,
+      borderRadius: 18,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      marginBottom: 14,
+    },
+    scopeTitle: { fontSize: 13, fontWeight: '800', color: c.primary },
+    scopeText: { fontSize: 11, color: c.text, marginTop: 3, lineHeight: 16 },
+
     statsRow: { flexDirection: 'row', marginHorizontal: -5, marginBottom: 16 },
     statTile: {
       flex: 1,
@@ -428,7 +479,6 @@ const makeStyles = (c, shadow) =>
     statValue: { fontSize: 22, fontWeight: '800' },
     statLabel: { fontSize: 10, color: c.muted, fontWeight: '700', marginTop: 3 },
 
-    // SEARCH + FILTER
     searchBox: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -442,27 +492,13 @@ const makeStyles = (c, shadow) =>
     searchInput: { flex: 1, height: 48, color: c.text, fontSize: 14 },
 
     filterRow: { paddingBottom: 14 },
-    chip: {
-      backgroundColor: c.surface,
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      marginRight: 8,
-      ...shadow,
-    },
+    chip: { backgroundColor: c.surface, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, ...shadow },
     chipActive: { backgroundColor: c.primary },
     chipText: { fontSize: 12, fontWeight: '800', color: c.text },
     chipTextActive: { color: c.white },
     chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
 
-    // LIST CARDS
-    card: {
-      backgroundColor: c.surface,
-      borderRadius: 22,
-      padding: 16,
-      marginBottom: 12,
-      ...shadow,
-    },
+    card: { backgroundColor: c.surface, borderRadius: 22, padding: 16, marginBottom: 12, ...shadow },
     listCard: { flexDirection: 'row', alignItems: 'center' },
     avatar: {
       width: 48,
@@ -476,6 +512,7 @@ const makeStyles = (c, shadow) =>
     avatarText: { color: c.primary, fontSize: 18, fontWeight: '800' },
     cardName: { flex: 1, fontSize: 15, fontWeight: '800', color: c.text, marginRight: 8 },
     cardMeta: { fontSize: 11, color: c.muted, marginTop: 2 },
+    cardTitle: { fontSize: 15, fontWeight: '800', color: c.text },
 
     toneChip: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 },
     toneText: { fontSize: 10, fontWeight: '800' },
@@ -487,7 +524,6 @@ const makeStyles = (c, shadow) =>
     emptyCard: { backgroundColor: c.surface, borderRadius: 22, padding: 24, alignItems: 'center', ...shadow },
     emptyText: { fontSize: 13, color: c.muted },
 
-    // DETAILS
     backRow: { marginBottom: 14 },
     backText: { fontSize: 13, fontWeight: '800', color: c.primary },
 
@@ -511,7 +547,7 @@ const makeStyles = (c, shadow) =>
     track: { height: 10, borderRadius: 5, backgroundColor: c.surfaceAlt, marginTop: 12, overflow: 'hidden' },
     fill: { height: '100%', borderRadius: 5 },
 
-    sectionLabel: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 6, marginBottom: 10 },
+    sectionLabel: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 14, marginBottom: 10 },
 
     classCard: {
       flexDirection: 'row',
@@ -538,8 +574,8 @@ const makeStyles = (c, shadow) =>
     actionRow: { flexDirection: 'row', marginTop: 14, marginHorizontal: -5 },
     actionBtn: { flex: 1, borderRadius: 16, paddingVertical: 14, alignItems: 'center', marginHorizontal: 5 },
     actionText: { fontSize: 14, fontWeight: '800' },
+    viewOnly: { fontSize: 12, color: c.muted, textAlign: 'center', marginTop: 16 },
 
-    // FORM
     field: { marginBottom: 18 },
     fieldLabel: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
     input: {
@@ -554,11 +590,19 @@ const makeStyles = (c, shadow) =>
     },
     errorText: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
 
-    primaryBtn: { backgroundColor: c.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginTop: 6, ...shadow },
+    lockedBox: { backgroundColor: c.primarySoft, borderRadius: 16, padding: 14 },
+    lockedText: { fontSize: 14, fontWeight: '800', color: c.primary },
+    lockedHint: { fontSize: 11, color: c.muted, marginTop: 4 },
+
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: 18,
+      paddingVertical: 16,
+      alignItems: 'center',
+      marginTop: 6,
+      ...shadow,
+    },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
     secondaryBtn: { backgroundColor: c.pinkSoft, borderRadius: 18, paddingVertical: 15, alignItems: 'center', marginTop: 10 },
     secondaryBtnText: { color: c.pink, fontSize: 14, fontWeight: '800' },
-
-    title2: { fontSize: 26, fontWeight: '800', color: c.text },
-    subtitle2: { fontSize: 12, color: c.muted },
   });

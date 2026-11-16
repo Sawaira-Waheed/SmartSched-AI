@@ -12,6 +12,7 @@ import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import TimetableScreen from './screens/TimetableScreen';
 import FacultyScreen from './screens/FacultyScreen';
+import CoursesScreen from './screens/CoursesScreen';
 import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
@@ -41,7 +42,7 @@ const APP_SCREENS = {
   timetable: TimetableScreen,
   faculty: FacultyScreen,
   availability: comingSoon('Availability'),
-  courses: comingSoon('Courses'),
+  courses: CoursesScreen,
   sections: comingSoon('Sections'),
   rooms: comingSoon('Rooms'),
   aischeduling: comingSoon('AI Scheduling'),
@@ -54,7 +55,7 @@ const APP_SCREENS = {
 };
 
 // Reads the theme, so it must render inside ThemeProvider.
-function Root({ current, activeSession, drawerOpen, navigation, onToggleMode }) {
+function Root({ mode, current, activeSession, drawerOpen, navigation, onToggleTheme }) {
   const { c } = useTheme();
 
   const AuthScreen = AUTH_SCREENS[current.name];
@@ -80,9 +81,13 @@ function Root({ current, activeSession, drawerOpen, navigation, onToggleMode }) 
         onMenu={navigation.openDrawer}
         onHome={() => navigation.navigate('dashboard', activeSession)}
         showHome={current.name !== 'dashboard'}
-        onToggleMode={onToggleMode}
       >
-        <AppScreen navigation={navigation} route={{ params: current.params }} />
+        <AppScreen
+          navigation={navigation}
+          route={{ params: current.params }}
+          themeMode={mode}
+          onToggleTheme={onToggleTheme}
+        />
       </AppShell>
 
       {drawerOpen && (
@@ -127,17 +132,18 @@ export default function App() {
   }, []);
 
   const activeSession = session || { role: 'hod', name: 'User' };
-  const toggleMode = () => setMode((m) => (m === 'light' ? 'dark' : 'light'));
+  const toggleTheme = () => setMode((m) => (m === 'light' ? 'dark' : 'light'));
 
   return (
     <SafeAreaProvider>
       <ThemeProvider mode={mode}>
         <Root
+          mode={mode}
           current={current}
           activeSession={activeSession}
           drawerOpen={drawerOpen}
           navigation={navigation}
-          onToggleMode={toggleMode}
+          onToggleTheme={toggleTheme}
         />
       </ThemeProvider>
     </SafeAreaProvider>
