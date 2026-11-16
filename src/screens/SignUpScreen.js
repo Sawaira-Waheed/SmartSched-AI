@@ -1,488 +1,288 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  StatusBar,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-} from 'react-native';
-import InputField from '../components/InputField';
-import Button from '../components/Button';
-import BackButton from '../components/BackButton';
-import AppLogo from '../components/AppLogo';
-import Card from '../components/Card';
+import React, { useMemo, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useTheme } from '../theme/theme';
+
+const ROLES = [
+  { key: 'registrar', title: 'Registrar', sub: 'Institution-wide scheduling', glyph: '◆', colorKey: 'primary' },
+  { key: 'hod', title: 'HOD', sub: 'Department management', glyph: '◉', colorKey: 'sky' },
+  { key: 'faculty', title: 'Faculty', sub: 'Teaching and availability', glyph: '✎', colorKey: 'mint' },
+];
 
 const SignUpScreen = ({ navigation }) => {
-  const [fullName, setFullName] = useState('');
+  const { c, shadow } = useTheme();
+  const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [role, setRole] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [errors, setErrors] = useState({});
   const [submitted, setSubmitted] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
+  const [done, setDone] = useState(false);
 
-  const validateForm = () => {
-    let newErrors = {};
-
-    if (!fullName.trim()) {
-      newErrors.fullName = 'Full name is required';
-    }
-
-    if (!email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!email.includes('@')) {
-      newErrors.email = 'Please enter valid email';
-    }
-
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = "Passwords don't match";
-    }
-
-    if (!selectedRole) {
-      newErrors.role = 'Please select a role';
-    }
-
-    return newErrors;
+  const errors = {
+    name: !name.trim() ? 'Full name is required' : '',
+    email: !email.trim() ? 'Email is required' : !email.includes('@') ? 'Enter a valid email' : '',
+    password: !password ? 'Password is required' : password.length < 6 ? 'Use at least 6 characters' : '',
+    confirm: !confirm ? 'Please confirm your password' : confirm !== password ? "Passwords don't match" : '',
+    role: !role ? 'Choose a role to continue' : '',
   };
 
-  const handleCreateAccount = () => {
+  const hasErrors = Object.values(errors).some(Boolean);
+
+  const handleCreate = () => {
     setSubmitted(true);
-    setSuccessMessage('');
-
-    const newErrors = validateForm();
-    setErrors(newErrors);
-
-    if (Object.keys(newErrors).length === 0) {
-      // Success
-      setSuccessMessage(
-        'Account request submitted. Your request has been sent to the Registrar for approval.'
-      );
-      console.log('Sign Up:', {
-        fullName,
-        email,
-        password,
-        role: selectedRole,
-      });
-      // TODO: Connect to backend
-    }
+    if (hasErrors) return;
+    // TODO: send the request to the backend. Accounts need Registrar approval.
+    setDone(true);
   };
+
+  const showError = (key) => (submitted ? errors[key] : '');
+
+  // ---------- CONFIRMATION ----------
+
+  if (done) {
+    return (
+      <View style={[s.container, s.center]}>
+        <View style={s.doneCard}>
+          <View style={s.doneBubble}>
+            <Text style={s.doneTick}>✓</Text>
+          </View>
+          <Text style={s.doneTitle}>Request submitted</Text>
+          <Text style={s.doneText}>
+            Your {ROLES.find((r) => r.key === role)?.title} account is waiting for Registrar approval. You'll be able to sign in once it's approved.
+          </Text>
+          <Pressable style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]} onPress={() => navigation.navigate('login')}>
+            <Text style={s.primaryBtnText}>Back to sign in</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // ---------- FORM ----------
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F6FF" />
+    <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <Pressable onPress={() => navigation.navigate('login')} style={s.backRow}>
+          <Text style={s.backText}>← Sign in</Text>
+        </Pressable>
 
-      <View style={styles.circleTop} />
-      <View style={styles.circleBottom} />
+        <Text style={s.heading}>Create your account</Text>
+        <Text style={s.subheading}>Join SmartSched AI and simplify academic scheduling.</Text>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.content}>
-          
-          {/* Back Button */}
-          <BackButton
-            onPress={() => navigation.navigate('login')}
-            text="Back to Sign In"
-          />
+        <View style={s.card}>
+          <Field s={s} label="Full name" error={showError('name')}>
+            <TextInput
+              style={[s.input, showError('name') && s.inputError]}
+              placeholder="Enter your full name"
+              placeholderTextColor={c.muted}
+              value={name}
+              onChangeText={setName}
+            />
+          </Field>
 
-          {/* Logo */}
-          <View style={styles.logoContainer}>
-            <AppLogo size="small" />
-          </View>
+          <Field s={s} label="University email" error={showError('email')}>
+            <TextInput
+              style={[s.input, showError('email') && s.inputError]}
+              placeholder="name@uni.edu"
+              placeholderTextColor={c.muted}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </Field>
 
-          {/* Heading */}
-          <Text style={styles.title}>Create your account</Text>
-
-          <Text style={styles.subtitle}>
-            Join SmartSched AI and simplify your academic scheduling.
-          </Text>
-
-          {/* Error Hint */}
-          {submitted &&
-            (
-              !fullName.trim() ||
-              !email.trim() ||
-              !password ||
-              !confirmPassword ||
-              !selectedRole
-            ) &&
-            !successMessage && (
-              <Card
-                icon="•"
-                title="Complete Required Fields"
-                message="Please fill in all fields to continue"
-                type="warning"
+          <Field s={s} label="Password" error={showError('password')}>
+            <View style={[s.inputWrap, showError('password') && s.inputError]}>
+              <TextInput
+                style={s.inputFlex}
+                placeholder="Create a password"
+                placeholderTextColor={c.muted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
               />
-            )}
-
-          {/* Full Name */}
-          <InputField
-            label="Full Name"
-            placeholder="Enter your full name"
-            value={fullName}
-            onChangeText={(text) => {
-              setFullName(text);
-              setSubmitted(false);
-            }}
-            error={errors.fullName}
-            icon="Aa"
-          />
-
-          {/* Email */}
-          <InputField
-            label="University Email"
-            placeholder="Enter your university email"
-            value={email}
-            onChangeText={(text) => {
-              setEmail(text);
-              setSubmitted(false);
-            }}
-            error={errors.email}
-            icon="@"
-            keyboardType="email-address"
-          />
-
-          {/* Password */}
-          <InputField
-            label="Password"
-            placeholder="Create a password"
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              setSubmitted(false);
-            }}
-            error={errors.password}
-            icon="●"
-            secureTextEntry={!showPassword}
-            showToggle={true}
-            onTogglePassword={setShowPassword}
-          />
-
-          {/* Confirm Password */}
-          <InputField
-            label="Confirm Password"
-            placeholder="Confirm your password"
-            value={confirmPassword}
-            onChangeText={(text) => {
-              setConfirmPassword(text);
-              setSubmitted(false);
-            }}
-            error={errors.confirmPassword}
-            icon="●"
-            secureTextEntry={!showConfirmPassword}
-            showToggle={true}
-            onTogglePassword={setShowConfirmPassword}
-          />
-
-          {/* Role Selection */}
-          <View style={styles.roleSection}>
-            <Text style={styles.roleLabel}>Request Role</Text>
-
-            <Text style={styles.roleHint}>
-              Your selected role must be approved by the Registrar.
-            </Text>
-
-            <View style={styles.roleContainer}>
-              {/* HOD */}
-              <Pressable
-                style={[
-                  styles.roleCard,
-                  selectedRole === 'HOD' && styles.roleCardSelected,
-                  submitted && !selectedRole && styles.roleCardError,
-                ]}
-                onPress={() => {
-                  setSelectedRole('HOD');
-                  setSubmitted(false);
-                }}
-              >
-                <View style={styles.roleTopRow}>
-                  <Text
-                    style={[
-                      styles.roleTitle,
-                      selectedRole === 'HOD' &&
-                        styles.roleTitleSelected,
-                    ]}
-                  >
-                    HOD
-                  </Text>
-                  {selectedRole === 'HOD' && (
-                    <Text style={styles.selectedMark}>✓</Text>
-                  )}
-                </View>
-                <Text style={styles.roleDescription}>
-                  Department management
-                </Text>
-              </Pressable>
-
-              {/* Faculty */}
-              <Pressable
-                style={[
-                  styles.roleCard,
-                  selectedRole === 'Faculty' &&
-                    styles.roleCardSelected,
-                  submitted && !selectedRole && styles.roleCardError,
-                ]}
-                onPress={() => {
-                  setSelectedRole('Faculty');
-                  setSubmitted(false);
-                }}
-              >
-                <View style={styles.roleTopRow}>
-                  <Text
-                    style={[
-                      styles.roleTitle,
-                      selectedRole === 'Faculty' &&
-                        styles.roleTitleSelected,
-                    ]}
-                  >
-                    Faculty Member
-                  </Text>
-                  {selectedRole === 'Faculty' && (
-                    <Text style={styles.selectedMark}>✓</Text>
-                  )}
-                </View>
-                <Text style={styles.roleDescription}>
-                  Teaching & availability
-                </Text>
+              <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={10}>
+                <Text style={s.eyeText}>{showPassword ? 'Hide' : 'Show'}</Text>
               </Pressable>
             </View>
+          </Field>
 
-            {errors.role && (
-              <Text style={styles.errorText}>{errors.role}</Text>
-            )}
-
-            <Text style={styles.adminNote}>
-              Registrar access is managed by the University Administrator.
-            </Text>
-          </View>
-
-          {/* Security Notice */}
-          <Card
-            icon="🔐"
-            title="Role verification required"
-            message="Account access is granted only after Registrar approval and identity verification."
-            type="info"
-          />
-
-          {/* Success Message */}
-          {successMessage && (
-            <Card
-              icon="✓"
-              title="Request submitted"
-              message={successMessage}
-              type="success"
+          <Field s={s} label="Confirm password" error={showError('confirm')}>
+            <TextInput
+              style={[s.input, showError('confirm') && s.inputError]}
+              placeholder="Re-enter your password"
+              placeholderTextColor={c.muted}
+              value={confirm}
+              onChangeText={setConfirm}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
             />
-          )}
+          </Field>
+        </View>
 
-          {/* Create Account Button */}
-          <Button
-            text="Create Account"
-            onPress={handleCreateAccount}
-            style={styles.createButton}
-          />
+        {/* ROLE */}
+        <Text style={s.sectionLabel}>REQUEST ROLE</Text>
+        <View style={s.roleList}>
+          {ROLES.map((r) => {
+            const active = role === r.key;
+            return (
+              <Pressable
+                key={r.key}
+                onPress={() => setRole(r.key)}
+                style={({ pressed }) => [
+                  s.roleCard,
+                  active && { borderColor: c[r.colorKey], backgroundColor: c[`${r.colorKey}Soft`] },
+                  pressed && s.pressed,
+                ]}
+              >
+                <View style={[s.roleIcon, { backgroundColor: c[`${r.colorKey}Soft`] }]}>
+                  <Text style={[s.roleGlyph, { color: c[r.colorKey] }]}>{r.glyph}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.roleTitle}>{r.title}</Text>
+                  <Text style={s.roleSub}>{r.sub}</Text>
+                </View>
+                <View style={[s.radio, active && { borderColor: c[r.colorKey] }]}>
+                  {active ? <View style={[s.radioDot, { backgroundColor: c[r.colorKey] }]} /> : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+        {showError('role') ? <Text style={s.errorText}>{errors.role}</Text> : null}
 
-          {/* Sign In Link */}
-          <View style={styles.alreadyRow}>
-            <Text style={styles.alreadyText}>
-              Already have an account?
-            </Text>
-            <Pressable onPress={() => navigation.navigate('login')}>
-              <Text style={styles.signInLink}>Sign In</Text>
-            </Pressable>
-          </View>
+        <View style={s.noteBox}>
+          <Text style={s.noteText}>Role access is approved by the Registrar before the account is activated.</Text>
+        </View>
 
+        <Pressable style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]} onPress={handleCreate}>
+          <Text style={s.primaryBtnText}>Create account</Text>
+        </Pressable>
+
+        <View style={s.footerRow}>
+          <Text style={s.footerText}>Already have an account?</Text>
+          <Pressable onPress={() => navigation.navigate('login')}>
+            <Text style={s.footerLink}> Sign in</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
 
+const Field = ({ s, label, error, children }) => (
+  <View style={s.field}>
+    <Text style={s.label}>{label}</Text>
+    {children}
+    {error ? <Text style={s.errorText}>{error}</Text> : null}
+  </View>
+);
+
 export default SignUpScreen;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6FF',
-    overflow: 'hidden',
-  },
+const makeStyles = (c, shadow) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    center: { justifyContent: 'center', padding: 24 },
+    scroll: { paddingHorizontal: 22, paddingTop: 18, paddingBottom: 40 },
+    pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 28,
-    paddingVertical: 28,
-  },
+    backRow: { marginBottom: 14 },
+    backText: { fontSize: 13, fontWeight: '800', color: c.primary },
+    heading: { fontSize: 26, fontWeight: '800', color: c.text },
+    subheading: { fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 19, marginBottom: 18 },
 
-  circleTop: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: '#EEE9FF',
-    top: -120,
-    right: -80,
-  },
+    card: { backgroundColor: c.surface, borderRadius: 24, padding: 18, ...shadow },
+    field: { marginBottom: 14 },
+    label: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
+    input: {
+      backgroundColor: c.surfaceAlt,
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      height: 50,
+      color: c.text,
+      fontSize: 14,
+      borderWidth: 1.5,
+      borderColor: 'transparent',
+    },
+    inputWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.surfaceAlt,
+      borderRadius: 16,
+      paddingHorizontal: 14,
+      height: 50,
+      borderWidth: 1.5,
+      borderColor: 'transparent',
+    },
+    inputFlex: { flex: 1, color: c.text, fontSize: 14, paddingVertical: 0 },
+    inputError: { borderColor: c.red },
+    eyeText: { fontSize: 12, fontWeight: '800', color: c.primary, paddingLeft: 10 },
+    errorText: { fontSize: 11, color: c.red, marginTop: 6, marginLeft: 4, fontWeight: '600' },
 
-  circleBottom: {
-    position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: '#F0ECFF',
-    bottom: -100,
-    left: -80,
-  },
+    sectionLabel: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 20, marginBottom: 10 },
+    roleList: {},
+    roleCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.surface,
+      borderRadius: 20,
+      padding: 14,
+      marginBottom: 10,
+      borderWidth: 1.5,
+      borderColor: 'transparent',
+      ...shadow,
+    },
+    roleIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+    roleGlyph: { fontSize: 18, fontWeight: '800' },
+    roleTitle: { fontSize: 14, fontWeight: '800', color: c.text },
+    roleSub: { fontSize: 11, color: c.muted, marginTop: 2 },
+    radio: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 2,
+      borderColor: c.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    radioDot: { width: 10, height: 10, borderRadius: 5 },
 
-  content: {
-    width: '100%',
-    maxWidth: 430,
-    alignSelf: 'center',
-    paddingBottom: 35,
-  },
+    noteBox: { backgroundColor: c.amberSoft, borderRadius: 16, padding: 14, marginTop: 6 },
+    noteText: { fontSize: 11, color: c.text, lineHeight: 17 },
 
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: 18,
+      paddingVertical: 16,
+      alignItems: 'center',
+      marginTop: 22,
+      ...shadow,
+    },
+    primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
 
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#24104F',
-    textAlign: 'center',
-  },
+    footerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 22 },
+    footerText: { fontSize: 13, color: c.muted },
+    footerLink: { fontSize: 13, fontWeight: '800', color: c.primary },
 
-  subtitle: {
-    fontSize: 13,
-    color: '#77718A',
-    lineHeight: 20,
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 30,
-    paddingHorizontal: 5,
-  },
-
-  roleSection: {
-    marginBottom: 18,
-  },
-
-  roleLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#3B3151',
-    marginBottom: 8,
-  },
-
-  roleHint: {
-    fontSize: 11,
-    color: '#8D879B',
-    marginTop: -3,
-    marginBottom: 10,
-  },
-
-  roleContainer: {
-    gap: 10,
-    marginBottom: 12,
-  },
-
-  roleCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E0EF',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-  },
-
-  roleCardSelected: {
-    borderColor: '#6C3BFF',
-    backgroundColor: '#F0ECFF',
-  },
-
-  roleCardError: {
-    borderColor: '#C5B9E8',
-  },
-
-  roleTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  roleTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#3B3151',
-  },
-
-  roleTitleSelected: {
-    color: '#6C3BFF',
-  },
-
-  selectedMark: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#6C3BFF',
-  },
-
-  roleDescription: {
-    marginTop: 3,
-    fontSize: 11,
-    color: '#8D879B',
-  },
-
-  adminNote: {
-    fontSize: 10,
-    color: '#8D879B',
-    lineHeight: 15,
-    marginTop: 9,
-    paddingHorizontal: 2,
-  },
-
-  errorText: {
-    fontSize: 10,
-    color: '#8A78A8',
-    marginTop: 6,
-    marginLeft: 3,
-  },
-
-  createButton: {
-    marginBottom: 22,
-  },
-
-  alreadyRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  alreadyText: {
-    fontSize: 13,
-    color: '#77718A',
-  },
-
-  signInLink: {
-    marginLeft: 5,
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6C3BFF',
-  },
-});
+    doneCard: { backgroundColor: c.surface, borderRadius: 26, padding: 26, alignItems: 'center', ...shadow },
+    doneBubble: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: c.mintSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    doneTick: { fontSize: 32, fontWeight: '800', color: c.mint },
+    doneTitle: { fontSize: 20, fontWeight: '800', color: c.text },
+    doneText: { fontSize: 13, color: c.muted, textAlign: 'center', lineHeight: 19, marginTop: 8 },
+  });
