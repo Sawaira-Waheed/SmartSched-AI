@@ -9,7 +9,6 @@ import { StatsRow, StatTile, EmptyCard } from '../components/ui';
 const EXPORTS = [
   { key: 'csv', title: 'CSV', sub: 'Spreadsheet data, one block per report', glyph: '▤', color: 'sky' },
   { key: 'xlsx', title: 'Excel (.xlsx)', sub: 'Each report on its own sheet', glyph: '▦', color: 'mint' },
-  { key: 'pdf', title: 'PDF', sub: 'Printable report with tables', glyph: '▲', color: 'primary' },
 ];
 
 const STATUS_COLOR = { Overloaded: 'red', 'Near limit': 'amber', Comfortable: 'mint' };
