@@ -15,6 +15,10 @@ import FacultyScreen from './screens/FacultyScreen';
 import CoursesScreen from './screens/CoursesScreen';
 import SectionsScreen from './screens/SectionsScreen';
 import RoomsScreen from './screens/RoomsScreen';
+import AvailabilityScreen from './screens/AvailabilityScreen';
+import ConflictsScreen from './screens/ConflictsScreen';
+import AiSchedulingScreen from './screens/AiSchedulingScreen';
+import NotificationsScreen from './screens/NotificationsScreen';
 import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
@@ -43,13 +47,13 @@ const APP_SCREENS = {
   dashboard: DashboardScreen,
   timetable: TimetableScreen,
   faculty: FacultyScreen,
-  availability: comingSoon('Availability'),
+  availability: AvailabilityScreen,
   courses: CoursesScreen,
   sections: SectionsScreen,
   rooms: RoomsScreen,
-  aischeduling: comingSoon('AI Scheduling'),
-  conflicts: comingSoon('Conflicts'),
-  notifications: comingSoon('Notifications'),
+  aischeduling: AiSchedulingScreen,
+  conflicts: ConflictsScreen,
+  notifications: NotificationsScreen,
   reports: comingSoon('Reports'),
   audit: comingSoon('Audit Logs'),
   profile: comingSoon('Profile'),
