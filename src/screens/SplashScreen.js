@@ -1,74 +1,96 @@
-import React, { useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  StatusBar,
-  ActivityIndicator,
-} from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, StatusBar } from 'react-native';
+import { useTheme } from '../theme/theme';
 
 const SplashScreen = ({ navigation }) => {
- useEffect(() => {
-  const timer = setTimeout(() => {
-    navigation?.navigate('welcome');
-  }, 3000);
+  const { c, mode, shadow } = useTheme();
+  const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
 
-  return () => clearTimeout(timer);
-}, [navigation]);
+  useEffect(() => {
+    const timer = setTimeout(() => navigation?.navigate('welcome'), 2800);
+    return () => clearTimeout(timer);
+  }, [navigation]);
 
   return (
-    <View style={styles.container}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor="#F8F6FF"
-      />
+    <View style={s.container}>
+      <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={c.bg} />
 
-      <Text style={styles.logo}>S</Text>
-      <Text style={styles.appName}>SmartSched AI</Text>
-      <Text style={styles.tagline}>Intelligent AI & Scheduling System</Text>
-      
-      <ActivityIndicator 
-        size="small" 
-        color="#6C3BFF"
-        style={{ marginTop: 50 }}
-      />
-      <Text style={styles.loadingText}>Loading...</Text>
+      <View style={s.blobTop} />
+      <View style={s.blobBottom} />
+
+      <View style={s.logo}>
+        <Text style={s.logoText}>S</Text>
+        <View style={s.logoDot} />
+      </View>
+
+      <Text style={s.brand}>
+        SmartSched <Text style={s.brandAi}>AI</Text>
+      </Text>
+      <Text style={s.tagline}>Intelligent scheduling for universities</Text>
+
+      <View style={s.loader}>
+        <ActivityIndicator size="small" color={c.primary} />
+        <Text style={s.loadingText}>Preparing your workspace…</Text>
+      </View>
     </View>
   );
 };
 
 export default SplashScreen;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  
-  logo: {
-    fontSize: 60,
-    fontWeight: '800',
-    color: '#6C3BFF',
-    marginBottom: 15,
-  },
-  
-  appName: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#24104F',
-  },
-  
-  tagline: {
-    fontSize: 13,
-    color: '#77718A',
-    marginTop: 10,
-  },
-  
-  loadingText: {
-    marginTop: 15,
-    fontSize: 12,
-    color: '#77718A',
-  },
-});
+const makeStyles = (c, shadow) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.bg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+
+    blobTop: {
+      position: 'absolute',
+      width: 260,
+      height: 260,
+      borderRadius: 130,
+      backgroundColor: c.primarySoft,
+      top: -110,
+      right: -90,
+    },
+    blobBottom: {
+      position: 'absolute',
+      width: 220,
+      height: 220,
+      borderRadius: 110,
+      backgroundColor: c.skySoft,
+      bottom: -100,
+      left: -80,
+    },
+
+    logo: {
+      width: 110,
+      height: 110,
+      borderRadius: 34,
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadow,
+    },
+    logoText: { color: c.white, fontSize: 56, fontWeight: '800' },
+    logoDot: {
+      position: 'absolute',
+      top: 18,
+      right: 18,
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: c.pink,
+    },
+
+    brand: { fontSize: 28, fontWeight: '800', color: c.text, marginTop: 26, letterSpacing: 0.3 },
+    brandAi: { color: c.primary },
+    tagline: { fontSize: 13, color: c.muted, marginTop: 8, textAlign: 'center', paddingHorizontal: 30 },
+
+    loader: { position: 'absolute', bottom: 70, alignItems: 'center' },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 12, fontWeight: '600' },
+  });
