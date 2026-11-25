@@ -1,9 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import { useTheme } from '../theme/theme';
-
-// DEMO: role used after sign-in. Replace with the role returned by the server.
-const DEMO_ROLE = 'hod';
+import { supabase } from '../lib/supabase';
+import { loadProfile } from '../lib/auth';
 
 const LoginScreen = ({ navigation }) => {
   const { c, shadow } = useTheme();
@@ -13,26 +22,65 @@ const LoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState('');
 
-  const emailError = submitted && !email.trim()
-    ? 'Email is required'
-    : submitted && !email.includes('@')
-      ? 'Enter a valid email'
-      : '';
+  const emailError = !submitted
+    ? ''
+    : !email.trim()
+      ? 'Email is required'
+      : !email.includes('@')
+        ? 'Enter a valid email'
+        : '';
 
-  const passwordError = submitted && !password
-    ? 'Password is required'
-    : submitted && password.length < 6
-      ? 'Use at least 6 characters'
-      : '';
+  const passwordError = !submitted
+    ? ''
+    : !password
+      ? 'Password is required'
+      : password.length < 6
+        ? 'Use at least 6 characters'
+        : '';
 
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     setSubmitted(true);
-    const valid = email.trim() && email.includes('@') && password.length >= 6;
-    if (!valid) return;
+    setServerError('');
 
-    const name = email.split('@')[0];
-    navigation.replace('dashboard', { role: DEMO_ROLE, name });
+    const valid = email.trim() && email.includes('@') && password.length >= 6;
+    if (!valid || loading) return;
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) {
+        setServerError(
+          error.message === 'Invalid login credentials'
+            ? 'Email or password is incorrect'
+            : error.message,
+        );
+        return;
+      }
+
+      const profile = await loadProfile(data.user.id);
+      if (!profile) {
+        await supabase.auth.signOut();
+        setServerError('This account is not set up yet. Ask the Registrar to approve it.');
+        return;
+      }
+
+      navigation.replace('dashboard', {
+        role: profile.role,
+        name: profile.full_name,
+        departmentId: profile.department_id,
+      });
+    } catch (e) {
+      setServerError('Could not reach the server. Check your internet connection.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -48,7 +96,6 @@ const LoginScreen = ({ navigation }) => {
           </Text>
         </View>
 
-        {/* HEADING */}
         <Text style={s.heading}>Welcome back</Text>
         <Text style={s.subheading}>Sign in with your university account to continue.</Text>
 
@@ -64,6 +111,7 @@ const LoginScreen = ({ navigation }) => {
               value={email}
               onChangeText={(t) => {
                 setEmail(t);
+                setServerError('');
               }}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -80,7 +128,10 @@ const LoginScreen = ({ navigation }) => {
               placeholder="Enter your password"
               placeholderTextColor={c.muted}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(t) => {
+                setPassword(t);
+                setServerError('');
+              }}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
             />
@@ -90,19 +141,32 @@ const LoginScreen = ({ navigation }) => {
           </View>
           {passwordError ? <Text style={s.errorText}>{passwordError}</Text> : null}
 
+          {serverError ? (
+            <View style={s.serverBox}>
+              <Text style={s.serverText}>{serverError}</Text>
+            </View>
+          ) : null}
+
           <Pressable onPress={() => navigation.navigate('forgotpassword')} style={s.forgotRow}>
             <Text style={s.forgotText}>Forgot password?</Text>
           </Pressable>
 
-          <Pressable style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]} onPress={handleSignIn}>
-            <Text style={s.primaryBtnText}>Sign in</Text>
+          <Pressable
+            disabled={loading}
+            style={({ pressed }) => [s.primaryBtn, pressed && s.pressed, loading && s.primaryBtnBusy]}
+            onPress={handleSignIn}
+          >
+            {loading ? (
+              <ActivityIndicator color={c.white} />
+            ) : (
+              <Text style={s.primaryBtnText}>Sign in</Text>
+            )}
           </Pressable>
         </View>
 
-        {/* FOOTER */}
         <View style={s.footerRow}>
           <Text style={s.footerText}>New here?</Text>
-          <Pressable onPress={() => navigation.navigate('signup')}>
+          <Pressable onPress={() => navigation.navigate('signup')} hitSlop={8}>
             <Text style={s.footerLink}> Create an account</Text>
           </Pressable>
         </View>
@@ -119,6 +183,7 @@ const makeStyles = (c, shadow) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
     scroll: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingVertical: 40 },
+    pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
     brandWrap: { alignItems: 'center', marginBottom: 26 },
     logo: {
@@ -137,12 +202,7 @@ const makeStyles = (c, shadow) =>
     heading: { fontSize: 28, fontWeight: '800', color: c.text, textAlign: 'center' },
     subheading: { fontSize: 13, color: c.muted, textAlign: 'center', marginTop: 8, lineHeight: 19, marginBottom: 26 },
 
-    form: {
-      backgroundColor: c.surface,
-      borderRadius: 26,
-      padding: 22,
-      ...shadow,
-    },
+    form: { backgroundColor: c.surface, borderRadius: 26, padding: 22, ...shadow },
     label: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
     inputWrap: {
       flexDirection: 'row',
@@ -161,6 +221,9 @@ const makeStyles = (c, shadow) =>
     eyeText: { fontSize: 12, fontWeight: '800', color: c.primary },
     errorText: { fontSize: 11, color: c.red, marginTop: 6, marginLeft: 4, fontWeight: '600' },
 
+    serverBox: { backgroundColor: c.redSoft, borderRadius: 14, padding: 12, marginTop: 16 },
+    serverText: { fontSize: 12, color: c.red, fontWeight: '700', lineHeight: 17 },
+
     forgotRow: { alignSelf: 'flex-end', marginTop: 12 },
     forgotText: { fontSize: 12, fontWeight: '800', color: c.primary },
 
@@ -170,9 +233,11 @@ const makeStyles = (c, shadow) =>
       paddingVertical: 16,
       alignItems: 'center',
       marginTop: 22,
+      minHeight: 54,
+      justifyContent: 'center',
       ...shadow,
     },
-    pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+    primaryBtnBusy: { opacity: 0.85 },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
 
     footerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 24 },

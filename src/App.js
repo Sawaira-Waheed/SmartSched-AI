@@ -19,14 +19,15 @@ import AvailabilityScreen from './screens/AvailabilityScreen';
 import ConflictsScreen from './screens/ConflictsScreen';
 import AiSchedulingScreen from './screens/AiSchedulingScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
+import ReportsScreen from './screens/ReportsScreen';
 import AuditLogsScreen from './screens/AuditLogsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
-import ComingSoonScreen from './screens/ComingSoonScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
 import { MENU } from './navigation/menu';
 import { ThemeProvider, useTheme } from './theme/theme';
+import { supabase } from './lib/supabase';
 
 // Screens shown before login. No top bar or drawer.
 const AUTH_SCREENS = {
@@ -37,12 +38,6 @@ const AUTH_SCREENS = {
   forgotpassword: ForgotPasswordScreen,
   otpverification: OtpScreen,
   resetpassword: ResetPasswordScreen,
-};
-
-// Creates a placeholder screen with its own title.
-const comingSoon = (title) => {
-  const Screen = (props) => <ComingSoonScreen {...props} title={title} />;
-  return Screen;
 };
 
 // Screens shown after login. Each key matches a key in navigation/menu.js.
@@ -57,7 +52,7 @@ const APP_SCREENS = {
   aischeduling: AiSchedulingScreen,
   conflicts: ConflictsScreen,
   notifications: NotificationsScreen,
-  reports: comingSoon('Reports'),
+  reports: ReportsScreen,
   audit: AuditLogsScreen,
   profile: ProfileScreen,
   settings: SettingsScreen,
@@ -93,7 +88,14 @@ function Root({ mode, current, activeSession, drawerOpen, navigation, onToggleTh
       >
         <AppScreen
           navigation={navigation}
-          route={{ params: { ...current.params, role: activeSession.role, name: activeSession.name } }}
+          route={{
+            params: {
+              ...current.params,
+              role: activeSession.role,
+              name: activeSession.name,
+              departmentId: activeSession.departmentId,
+            },
+          }}
           themeMode={mode}
           onToggleTheme={onToggleTheme}
         />
@@ -121,7 +123,11 @@ export default function App() {
   const navigation = useMemo(() => {
     const go = (name, params) => {
       if (params?.role) {
-        setSession({ role: params.role, name: params.name || 'User' });
+        setSession({
+          role: params.role,
+          name: params.name || 'User',
+          departmentId: params.departmentId ?? null,
+        });
       }
       setDrawerOpen(false);
       setCurrent({ name: String(name).toLowerCase(), params });
@@ -132,7 +138,8 @@ export default function App() {
       replace: go,
       openDrawer: () => setDrawerOpen(true),
       closeDrawer: () => setDrawerOpen(false),
-      logout: () => {
+      logout: async () => {
+        await supabase.auth.signOut();
         setSession(null);
         setDrawerOpen(false);
         setCurrent({ name: 'login', params: undefined });
@@ -140,7 +147,7 @@ export default function App() {
     };
   }, []);
 
-  const activeSession = session || { role: 'hod', name: 'User' };
+  const activeSession = session || { role: 'hod', name: 'User', departmentId: 'cs' };
   const toggleTheme = () => setMode((m) => (m === 'light' ? 'dark' : 'light'));
 
   return (

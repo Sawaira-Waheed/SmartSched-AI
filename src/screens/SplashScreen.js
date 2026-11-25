@@ -1,14 +1,45 @@
 import React, { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, StatusBar } from 'react-native';
 import { useTheme } from '../theme/theme';
+import { supabase } from '../lib/supabase';
+import { loadProfile } from '../lib/auth';
 
 const SplashScreen = ({ navigation }) => {
   const { c, mode, shadow } = useTheme();
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
 
   useEffect(() => {
-    const timer = setTimeout(() => navigation?.navigate('welcome'), 2800);
-    return () => clearTimeout(timer);
+    let active = true;
+
+    const minDelay = new Promise((resolve) => setTimeout(resolve, 2800));
+
+    // Returns the profile if a session was saved on this phone, otherwise null
+    const restoreSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) return null;
+        return await loadProfile(data.session.user.id);
+      } catch (e) {
+        return null;
+      }
+    };
+
+    Promise.all([minDelay, restoreSession()]).then(([, profile]) => {
+      if (!active) return;
+      if (profile) {
+        navigation?.replace('dashboard', {
+          role: profile.role,
+          name: profile.full_name,
+          departmentId: profile.department_id,
+        });
+      } else {
+        navigation?.replace('welcome');
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [navigation]);
 
   return (
