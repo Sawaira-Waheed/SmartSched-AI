@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import SplashScreen from './screens/SplashScreen';
@@ -16,9 +16,9 @@ import CoursesScreen from './screens/CoursesScreen';
 import SectionsScreen from './screens/SectionsScreen';
 import RoomsScreen from './screens/RoomsScreen';
 import AvailabilityScreen from './screens/AvailabilityScreen';
+import CalendarScreen from './screens/CalendarScreen';
 import ConflictsScreen from './screens/ConflictsScreen';
 import AiSchedulingScreen from './screens/AiSchedulingScreen';
-import CalendarScreen from './screens/CalendarScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import ReportsScreen from './screens/ReportsScreen';
 import AuditLogsScreen from './screens/AuditLogsScreen';
@@ -26,9 +26,14 @@ import ProfileScreen from './screens/ProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import AppShell from './components/AppShell';
 import DrawerMenu from './components/DrawerMenu';
+import InactivityGuard from './components/InactivityGuard';
 import { MENU } from './navigation/menu';
 import { ThemeProvider, useTheme } from './theme/theme';
 import { supabase } from './lib/supabase';
+
+// Automatic sign-out after this many minutes with no activity.
+// For testing, set to 30 * 1000 (30 seconds), then change it back.
+const INACTIVITY_MS = 15 * 60 * 1000;
 
 // Screens shown before login. No top bar or drawer.
 const AUTH_SCREENS = {
@@ -45,9 +50,9 @@ const AUTH_SCREENS = {
 const APP_SCREENS = {
   dashboard: DashboardScreen,
   timetable: TimetableScreen,
-  calendar: CalendarScreen,
   faculty: FacultyScreen,
   availability: AvailabilityScreen,
+  calendar: CalendarScreen,
   courses: CoursesScreen,
   sections: SectionsScreen,
   rooms: RoomsScreen,
@@ -121,10 +126,12 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mode, setMode] = useState('light');
+  const signedInRef = useRef(false);
 
   const navigation = useMemo(() => {
     const go = (name, params) => {
       if (params?.role) {
+        signedInRef.current = true;
         setSession({
           role: params.role,
           name: params.name || 'User',
@@ -141,6 +148,7 @@ export default function App() {
       openDrawer: () => setDrawerOpen(true),
       closeDrawer: () => setDrawerOpen(false),
       logout: async () => {
+        signedInRef.current = false;
         await supabase.auth.signOut();
         setSession(null);
         setDrawerOpen(false);
@@ -149,20 +157,41 @@ export default function App() {
     };
   }, []);
 
+  // If the server ends the session (for example, another device signed this one out), return to Login
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && signedInRef.current) {
+        signedInRef.current = false;
+        setSession(null);
+        setDrawerOpen(false);
+        setCurrent({ name: 'login', params: undefined });
+        Alert.alert('Signed out', 'Your session ended. Please sign in again.');
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const handleTimeout = () => {
+    navigation.logout();
+    Alert.alert('Signed out', 'You were inactive for a while, so you have been signed out.');
+  };
+
   const activeSession = session || { role: 'hod', name: 'User', departmentId: 'cs' };
   const toggleTheme = () => setMode((m) => (m === 'light' ? 'dark' : 'light'));
 
   return (
     <SafeAreaProvider>
       <ThemeProvider mode={mode}>
-        <Root
-          mode={mode}
-          current={current}
-          activeSession={activeSession}
-          drawerOpen={drawerOpen}
-          navigation={navigation}
-          onToggleTheme={toggleTheme}
-        />
+        <InactivityGuard enabled={!!session} timeoutMs={INACTIVITY_MS} onTimeout={handleTimeout}>
+          <Root
+            mode={mode}
+            current={current}
+            activeSession={activeSession}
+            drawerOpen={drawerOpen}
+            navigation={navigation}
+            onToggleTheme={toggleTheme}
+          />
+        </InactivityGuard>
       </ThemeProvider>
     </SafeAreaProvider>
   );

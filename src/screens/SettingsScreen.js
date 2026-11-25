@@ -1,56 +1,70 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
 import { useTheme } from '../theme/theme';
+import { supabase } from '../lib/supabase';
+import { changePassword, signOutOtherDevices } from '../lib/auth';
 
-const INITIAL_SESSIONS = [
-  { id: 'this', device: 'Windows PC · Chrome', place: 'Gujar Khan, PK', current: true },
-  { id: 's2', device: 'Android · SmartSched app', place: 'Gujar Khan, PK', current: false },
-];
+const ROLE_LABEL = { registrar: 'Registrar', hod: 'Head of Department', faculty: 'Faculty' };
 
-const LOGIN_HISTORY = [
-  { id: 'h1', time: 'Today · 9:02 AM', device: 'Windows PC', ok: true },
-  { id: 'h2', time: 'Yesterday · 4:40 PM', device: 'Android', ok: true },
-  { id: 'h3', time: 'Yesterday · 4:38 PM', device: 'Unknown device', ok: false },
-  { id: 'h4', time: '2 days ago · 8:15 AM', device: 'Windows PC', ok: true },
-];
-
-const SettingsScreen = ({ navigation, themeMode, onToggleTheme }) => {
+const SettingsScreen = ({ navigation, route, themeMode, onToggleTheme }) => {
   const { c, shadow } = useTheme();
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
 
-  const [notify, setNotify] = useState({ clash: true, ai: true, updates: true, summary: false });
-  const [sessions, setSessions] = useState(INITIAL_SESSIONS);
+  const [email, setEmail] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [pwd, setPwd] = useState({ current: '', next: '', confirm: '' });
   const [pwdErr, setPwdErr] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [notify, setNotify] = useState({ clash: true, ai: true, updates: true, summary: false });
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setEmail(data?.user?.email || ''));
+  }, []);
 
   const isDark = themeMode === 'dark';
-
   const toggleNotify = (key) => setNotify((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const changePassword = () => {
+  const submitPassword = async () => {
     const e = {};
     if (!pwd.current) e.current = 'Enter your current password';
     if (pwd.next.length < 6) e.next = 'Use at least 6 characters';
     if (pwd.confirm !== pwd.next) e.confirm = "Passwords don't match";
     setPwdErr(e);
-    if (Object.keys(e).length) return;
+    if (Object.keys(e).length || !email) return;
 
-    // TODO: send the change to the backend
-    setPwd({ current: '', next: '', confirm: '' });
-    setShowPwd(false);
-    Alert.alert('Password updated', 'Use your new password the next time you sign in.');
+    setSaving(true);
+    try {
+      await changePassword(email, pwd.current, pwd.next);
+      setPwd({ current: '', next: '', confirm: '' });
+      setShowPwd(false);
+      Alert.alert('Password updated', 'Use your new password the next time you sign in.');
+    } catch (err) {
+      setPwdErr({ current: err.message });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const signOutSession = (id) => {
-    setSessions((prev) => prev.filter((x) => x.id !== id));
-  };
-
-  const signOutEverywhere = () => {
-    Alert.alert('Sign out everywhere', 'This signs you out on all other devices. Continue?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out others', style: 'destructive', onPress: () => setSessions((prev) => prev.filter((x) => x.current)) },
-    ]);
+  const signOutOthers = () => {
+    Alert.alert(
+      'Sign out other devices',
+      'Other phones and computers will be signed out. This device stays signed in.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out others',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOutOtherDevices();
+              Alert.alert('Done', 'Other devices were signed out.');
+            } catch (err) {
+              Alert.alert('Could not sign out other devices', err.message);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const logout = () => navigation.logout();
@@ -59,6 +73,14 @@ const SettingsScreen = ({ navigation, themeMode, onToggleTheme }) => {
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <Text style={s.title}>Settings</Text>
       <Text style={s.subtitle}>Appearance, alerts and account security</Text>
+
+      {/* ACCOUNT */}
+      <Text style={s.section}>ACCOUNT</Text>
+      <View style={s.card}>
+        <InfoRow s={s} label="Email" value={email || '…'} />
+        <InfoRow s={s} label="Role" value={ROLE_LABEL[route?.params?.role] || '—'} />
+        <InfoRow s={s} label="Department" value={route?.params?.departmentId ? route.params.departmentId.toUpperCase() : 'All departments'} last />
+      </View>
 
       {/* APPEARANCE */}
       <Text style={s.section}>APPEARANCE</Text>
@@ -71,6 +93,7 @@ const SettingsScreen = ({ navigation, themeMode, onToggleTheme }) => {
           title="Dark mode"
           sub={isDark ? 'Dark teal theme' : 'Light teal theme'}
           right={<Toggle on={isDark} onPress={onToggleTheme} c={c} s={s} />}
+          last
         />
       </View>
 
@@ -114,6 +137,7 @@ const SettingsScreen = ({ navigation, themeMode, onToggleTheme }) => {
           right={<Toggle on={notify.summary} onPress={() => toggleNotify('summary')} c={c} s={s} />}
           last
         />
+        <Text style={s.hint}>These preferences are not saved yet. Saving them comes with the next update.</Text>
       </View>
 
       {/* SECURITY */}
@@ -125,7 +149,7 @@ const SettingsScreen = ({ navigation, themeMode, onToggleTheme }) => {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={s.rowTitle}>Change password</Text>
-            <Text style={s.rowSub}>Use a strong password you don't reuse</Text>
+            <Text style={s.rowSub}>Enter your current password to set a new one</Text>
           </View>
           <Text style={s.chev}>{showPwd ? '˄' : '›'}</Text>
         </Pressable>
@@ -135,65 +159,50 @@ const SettingsScreen = ({ navigation, themeMode, onToggleTheme }) => {
             <PwdField s={s} c={c} label="Current password" value={pwd.current} error={pwdErr.current} onChange={(v) => setPwd({ ...pwd, current: v })} />
             <PwdField s={s} c={c} label="New password" value={pwd.next} error={pwdErr.next} onChange={(v) => setPwd({ ...pwd, next: v })} />
             <PwdField s={s} c={c} label="Confirm new password" value={pwd.confirm} error={pwdErr.confirm} onChange={(v) => setPwd({ ...pwd, confirm: v })} />
-            <Pressable style={({ pressed }) => [s.saveBtn, pressed && s.pressed]} onPress={changePassword}>
-              <Text style={s.saveBtnText}>Update password</Text>
+            <Pressable
+              style={({ pressed }) => [s.saveBtn, pressed && s.pressed, saving && { opacity: 0.6 }]}
+              onPress={submitPassword}
+              disabled={saving}
+            >
+              <Text style={s.saveBtnText}>{saving ? 'Updating…' : 'Update password'}</Text>
             </Pressable>
           </View>
         ) : null}
+
+        <Pressable style={s.linkRow} onPress={signOutOthers}>
+          <View style={[s.iconBox, { backgroundColor: c.amberSoft }]}>
+            <Text style={[s.iconGlyph, { color: c.amber }]}>▣</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.rowTitle}>Sign out other devices</Text>
+            <Text style={s.rowSub}>Ends sessions on every other phone or computer</Text>
+          </View>
+          <Text style={s.chev}>›</Text>
+        </Pressable>
       </View>
 
-      <Text style={s.section}>ACTIVE SESSIONS</Text>
+      <Text style={s.section}>AUTO SIGN-OUT</Text>
       <View style={s.card}>
-        {sessions.map((x, i) => (
-          <View key={x.id} style={[s.sessionRow, i === sessions.length - 1 && { borderBottomWidth: 0 }]}>
-            <View style={[s.iconBox, { backgroundColor: x.current ? c.mintSoft : c.surfaceAlt }]}>
-              <Text style={[s.iconGlyph, { color: x.current ? c.mint : c.muted }]}>▣</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowTitle} numberOfLines={1}>
-                {x.device}
-              </Text>
-              <Text style={s.rowSub} numberOfLines={1}>
-                {x.place} · {x.current ? 'This device' : 'Active'}
-              </Text>
-            </View>
-            {!x.current ? (
-              <Pressable onPress={() => signOutSession(x.id)} hitSlop={8}>
-                <Text style={s.signOutOne}>Sign out</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ))}
-        {sessions.length > 1 ? (
-          <Pressable style={s.outlineBtn} onPress={signOutEverywhere}>
-            <Text style={s.outlineText}>Sign out other devices</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      <Text style={s.section}>LOGIN HISTORY</Text>
-      <View style={s.card}>
-        {LOGIN_HISTORY.map((h, i) => (
-          <View key={h.id} style={[s.historyRow, i === LOGIN_HISTORY.length - 1 && { borderBottomWidth: 0 }]}>
-            <View style={[s.dot, { backgroundColor: h.ok ? c.mint : c.red }]} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.rowTitle}>{h.ok ? 'Signed in' : 'Failed sign-in'}</Text>
-              <Text style={s.rowSub}>
-                {h.device} · {h.time}
-              </Text>
-            </View>
-          </View>
-        ))}
+        <Text style={s.infoText}>
+          For your security, you are signed out after 15 minutes without activity. Any touch or scroll resets the timer.
+        </Text>
       </View>
 
       <Pressable style={({ pressed }) => [s.logoutBtn, pressed && s.pressed]} onPress={logout}>
         <Text style={s.logoutText}>Log out of this device</Text>
       </Pressable>
-
-      <Text style={s.demoNote}>Sample data · sessions and history update once the backend is connected</Text>
     </ScrollView>
   );
 };
+
+const InfoRow = ({ s, label, value, last }) => (
+  <View style={[s.infoRowLine, last && { borderBottomWidth: 0 }]}>
+    <Text style={s.infoLabel}>{label}</Text>
+    <Text style={s.infoValue} numberOfLines={1}>
+      {value}
+    </Text>
+  </View>
+);
 
 const SettingRow = ({ s, c, glyph, tone, title, sub, right, last }) => (
   <View style={[s.row, last && { borderBottomWidth: 0 }]}>
@@ -240,13 +249,13 @@ const makeStyles = (c, shadow) =>
     section: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 22, marginBottom: 10 },
 
     card: { backgroundColor: c.surface, borderRadius: 22, paddingHorizontal: 16, ...shadow },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-    },
+    row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border },
+    infoRowLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border },
+    infoLabel: { fontSize: 12, color: c.muted, fontWeight: '700' },
+    infoValue: { fontSize: 13, color: c.text, fontWeight: '700', maxWidth: '62%', textAlign: 'right' },
+    infoText: { fontSize: 12, color: c.text, lineHeight: 18, paddingVertical: 14 },
+    hint: { fontSize: 10, color: c.muted, paddingVertical: 12 },
+
     iconBox: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     iconGlyph: { fontSize: 16, fontWeight: '800' },
     rowTitle: { fontSize: 14, fontWeight: '800', color: c.text },
@@ -256,35 +265,16 @@ const makeStyles = (c, shadow) =>
     knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: c.white, alignSelf: 'flex-start' },
     knobOn: { alignSelf: 'flex-end' },
 
-    linkRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
+    linkRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border },
     chev: { fontSize: 22, color: c.primary, marginLeft: 8 },
-    pwdBox: { paddingBottom: 16, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 16 },
+    pwdBox: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: c.border },
     fieldLabel: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
-    input: {
-      backgroundColor: c.surfaceAlt,
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      height: 48,
-      color: c.text,
-      fontSize: 14,
-      borderWidth: 1.5,
-      borderColor: 'transparent',
-    },
+    input: { backgroundColor: c.surfaceAlt, borderRadius: 16, paddingHorizontal: 14, height: 48, color: c.text, fontSize: 14, borderWidth: 1.5, borderColor: 'transparent' },
     inputError: { borderColor: c.red },
     errorText: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
     saveBtn: { backgroundColor: c.primary, borderRadius: 16, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
     saveBtnText: { color: c.white, fontSize: 14, fontWeight: '800' },
 
-    sessionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    signOutOne: { fontSize: 12, fontWeight: '800', color: c.red },
-    outlineBtn: { borderWidth: 1.5, borderColor: c.red, borderRadius: 16, paddingVertical: 13, alignItems: 'center', marginVertical: 14 },
-    outlineText: { fontSize: 13, fontWeight: '800', color: c.red },
-
-    historyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    dot: { width: 10, height: 10, borderRadius: 5, marginRight: 14 },
-
     logoutBtn: { backgroundColor: c.redSoft, borderRadius: 18, paddingVertical: 15, alignItems: 'center', marginTop: 24 },
     logoutText: { fontSize: 14, fontWeight: '800', color: c.red },
-
-    demoNote: { fontSize: 10, color: c.muted, textAlign: 'center', marginTop: 16 },
   });
