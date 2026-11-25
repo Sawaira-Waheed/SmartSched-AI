@@ -93,3 +93,22 @@ export const deleteFaculty = async (id) => {
   const { error } = await supabase.from('faculty').delete().eq('id', id);
   if (error) throw new Error(error.message);
 };
+
+export const saveTimetableEntry = async (record) => {
+  const { error } = await supabase.from('timetable').insert({
+    id: `t${Date.now()}`,
+    course_id: record.courseId,
+    section_id: record.sectionId,
+    faculty_id: record.facultyId,
+    room_id: record.roomId,
+    day: record.day,
+    start_time: record.start,
+    duration_mins: record.durationMins,
+  });
+  if (error) throw new Error(error.message);
+};
+
+export const deleteTimetableEntry = async (id) => {
+  const { error } = await supabase.from('timetable').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+};

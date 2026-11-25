@@ -1,83 +1,64 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, Alert } from 'react-native';
-import {
-  DAYS,
-  DEPARTMENTS,
-  FACULTY,
-  COURSES,
-  SECTIONS,
-  ROOMS,
-  TIMETABLE,
-} from '../data/sampleData';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { DAYS } from '../data/sampleData';
 import { findConflicts, checkRoomFit } from '../utils/conflicts';
 import { useTheme } from '../theme/theme';
+import { getAccess, inScope, ROLE } from '../utils/permissions';
+import { supabase } from '../lib/supabase';
+import {
+  fetchTimetable,
+  fetchCourses,
+  fetchSections,
+  fetchRooms,
+  fetchFaculty,
+  fetchDepartments,
+  saveTimetableEntry,
+  deleteTimetableEntry,
+} from '../lib/data';
 
-// ---------- SETTINGS ----------
-
-// Demo: the logged-in faculty member. Connect to the real login later.
-const MY_FACULTY_ID = 'f2';
-
-const GRID_START = 8 * 60; // 08:00
-const GRID_END = 17 * 60; // 17:00
-const ROW_H = 72; // height of one hour on screen
+const GRID_START = 8 * 60;
+const GRID_END = 17 * 60;
+const ROW_H = 72;
 const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 const START_TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'];
-
-// Each course gets a color from the palette, in order.
 const COLOR_CYCLE = ['primary', 'sky', 'mint', 'pink', 'amber'];
-
-// ---------- HELPERS ----------
 
 const toMin = (t) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 };
-
 const fmt = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
-
 const hourLabel = (h) => `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`;
+const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]));
 
-const colorFor = (courseId) => {
-  const i = COURSES.findIndex((co) => co.id === courseId);
-  return COLOR_CYCLE[(i < 0 ? 0 : i) % COLOR_CYCLE.length];
-};
+const emptyForm = (day) => ({ courseId: '', sectionId: '', facultyId: '', roomId: '', day, start: '09:00' });
 
-const courseOf = (id) => COURSES.find((co) => co.id === id);
-const sectionOf = (id) => SECTIONS.find((sec) => sec.id === id);
-const facultyOf = (id) => FACULTY.find((f) => f.id === id);
-const roomOf = (id) => ROOMS.find((r) => r.id === id);
-
-const sectionDept = (sectionId) => sectionOf(sectionId)?.departmentId;
-
-const emptyForm = (day) => ({
-  courseId: '',
-  sectionId: '',
-  facultyId: '',
-  roomId: '',
-  day,
-  start: '09:00',
-});
-
-const describeClash = (clash, entries) => {
+const describeClash = (clash, entries, maps) => {
   const other = entries.find((e) => e.id === clash.withId);
-  const otherCourse = courseOf(other?.courseId)?.name || 'another class';
-  const otherSection = sectionOf(other?.sectionId)?.name || 'another section';
-
+  const otherCourse = maps.courses[other?.courseId]?.name || 'another class';
+  const otherSection = maps.sections[other?.sectionId]?.name || 'another section';
   if (clash.type === 'teacher') return `Teacher is already teaching ${otherCourse} at this time`;
   if (clash.type === 'section') return `${otherSection} already has ${otherCourse} at this time`;
   return `Room is already booked for ${otherCourse} at this time`;
 };
 
-// ---------- SCREEN ----------
-
 const TimetableScreen = ({ route }) => {
   const { c, shadow } = useTheme();
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
+  const access = getAccess(route?.params);
+  const isFaculty = access.role === ROLE.FACULTY;
 
-  const role = route?.params?.role || 'hod';
-  const canEdit = role !== 'faculty';
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [entries, setEntries] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [faculty, setFaculty] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [myFacultyId, setMyFacultyId] = useState(null);
 
-  const [entries, setEntries] = useState(TIMETABLE);
   const [day, setDay] = useState('Mon');
   const [deptFilter, setDeptFilter] = useState('all');
   const [sectionFilter, setSectionFilter] = useState('all');
@@ -85,7 +66,59 @@ const TimetableScreen = ({ route }) => {
   const [form, setForm] = useState(emptyForm('Mon'));
   const [check, setCheck] = useState(null);
 
-  // Every class that clashes with another class
+  const maps = useMemo(
+    () => ({
+      courses: byId(courses),
+      sections: byId(sections),
+      rooms: byId(rooms),
+      faculty: byId(faculty),
+    }),
+    [courses, sections, rooms, faculty],
+  );
+
+  const load = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [tt, co, se, ro, fa, de, auth] = await Promise.all([
+        fetchTimetable(),
+        fetchCourses(),
+        fetchSections(),
+        fetchRooms(),
+        fetchFaculty(),
+        fetchDepartments(),
+        supabase.auth.getUser(),
+      ]);
+      const email = auth?.data?.user?.email?.toLowerCase();
+      setEntries(tt);
+      setCourses(co);
+      setSections(se);
+      setRooms(ro);
+      setFaculty(fa);
+      setDepartments(de);
+      setMyFacultyId(fa.find((f) => f.email?.toLowerCase() === email)?.id || null);
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const sectionDept = (sectionId) => maps.sections[sectionId]?.departmentId;
+  const colorFor = (courseId) => {
+    const i = courses.findIndex((co) => co.id === courseId);
+    return COLOR_CYCLE[(i < 0 ? 0 : i) % COLOR_CYCLE.length];
+  };
+
+  // Faculty see only their own classes. HOD and Registrar see the rows the database returns.
+  const isMine = (e) =>
+    isFaculty ? e.facultyId === myFacultyId : inScope(access, { departmentId: sectionDept(e.sectionId) });
+
+  // Clashes are checked on the rows this user can read (see the note below).
   const clashIds = useMemo(() => {
     const ids = new Set();
     entries.forEach((e) => {
@@ -94,27 +127,35 @@ const TimetableScreen = ({ route }) => {
     return ids;
   }, [entries]);
 
-  // What this user is allowed to see
   const visible = entries.filter((e) => {
-    if (role === 'faculty' && e.facultyId !== MY_FACULTY_ID) return false;
+    if (!isMine(e)) return false;
     if (deptFilter !== 'all' && sectionDept(e.sectionId) !== deptFilter) return false;
     if (sectionFilter !== 'all' && e.sectionId !== sectionFilter) return false;
     return true;
   });
 
-  const dayItems = visible
-    .filter((e) => e.day === day)
-    .sort((a, b) => toMin(a.start) - toMin(b.start));
-
+  const dayItems = visible.filter((e) => e.day === day).sort((a, b) => toMin(a.start) - toMin(b.start));
   const dayCount = (d) => visible.filter((e) => e.day === d).length;
-  const weekClashes = entries.filter((e) => clashIds.has(e.id)).length;
+  const weekClashes = visible.filter((e) => clashIds.has(e.id)).length;
   const roomsInUse = new Set(visible.map((e) => e.roomId)).size;
 
-  const sectionChoices = SECTIONS.filter((sec) => deptFilter === 'all' || sec.departmentId === deptFilter);
+  const sectionChoices = sections.filter(
+    (sec) => inScope(access, sec) && (deptFilter === 'all' || sec.departmentId === deptFilter),
+  );
+
+  // Form choices are limited to the user's department
+  const courseChoices = courses.filter((co) => inScope(access, co));
+  const sectionFormChoices = sections.filter((sec) => inScope(access, sec));
+  const roomChoices = rooms.filter((r) => inScope(access, r));
+  const formCourse = maps.courses[form.courseId];
+  const facultyChoices = faculty.filter(
+    (f) => inScope(access, f) && (!formCourse || f.departmentId === formCourse.departmentId),
+  );
 
   // ---------- ACTIONS ----------
 
   const openNew = () => {
+    if (!access.canEdit) return;
     setForm(emptyForm(day));
     setCheck(null);
     setEditing(true);
@@ -126,7 +167,7 @@ const TimetableScreen = ({ route }) => {
   };
 
   const buildCandidate = () => {
-    const course = courseOf(form.courseId);
+    const course = maps.courses[form.courseId];
     if (!course || !form.sectionId || !form.facultyId || !form.roomId) return null;
     return {
       courseId: form.courseId,
@@ -146,55 +187,84 @@ const TimetableScreen = ({ route }) => {
       return;
     }
 
-    const issues = [
-      ...findConflicts(entries, candidate, null).map((cf) => describeClash(cf, entries)),
-      ...checkRoomFit(roomOf(candidate.roomId), courseOf(candidate.courseId), sectionOf(candidate.sectionId)),
-    ];
+    const course = maps.courses[candidate.courseId];
+    const section = maps.sections[candidate.sectionId];
+    const room = maps.rooms[candidate.roomId];
+
+    const issues = [];
+    if (!inScope(access, course) || !inScope(access, section)) {
+      issues.push('You can only schedule courses and sections in your department');
+    }
+    if (!inScope(access, room)) {
+      issues.push('This room belongs to another department');
+    }
+    issues.push(...findConflicts(entries, candidate, null).map((cf) => describeClash(cf, entries, maps)));
+    issues.push(...checkRoomFit(room, course, section));
 
     setCheck({ ok: issues.length === 0, issues, end: fmt(toMin(candidate.start) + candidate.durationMins) });
   };
 
-  const saveClass = () => {
+  const saveClass = async () => {
     const candidate = buildCandidate();
-    if (!candidate || !check?.ok) return;
+    if (!candidate || !check?.ok || saving) return;
 
-    setEntries((prev) => [...prev, { id: `t${Date.now()}`, ...candidate }]);
-    setDay(candidate.day);
-    setEditing(false);
-    setCheck(null);
-    Alert.alert('Class saved', `${courseOf(candidate.courseId).name} added on ${candidate.day} at ${candidate.start}.`);
+    setSaving(true);
+    try {
+      await saveTimetableEntry(candidate);
+      setDay(candidate.day);
+      setEditing(false);
+      setCheck(null);
+      await load();
+      Alert.alert(
+        'Class saved',
+        `${maps.courses[candidate.courseId].name} added on ${candidate.day} at ${candidate.start}.`,
+      );
+    } catch (e) {
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const removeClass = (id) => {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+  const removeClass = async (id) => {
+    try {
+      await deleteTimetableEntry(id);
+      await load();
+    } catch (e) {
+      Alert.alert('Could not delete', e.message);
+    }
   };
 
   const onBlockPress = (e) => {
-    const course = courseOf(e.courseId);
-    const section = sectionOf(e.sectionId);
-    const room = roomOf(e.roomId);
-    const info = `${section?.name} · Room ${room?.name} · ${facultyOf(e.facultyId)?.name}\n${e.day} ${e.start} to ${fmt(
-      toMin(e.start) + e.durationMins,
-    )}`;
+    const course = maps.courses[e.courseId];
+    const info = `${maps.sections[e.sectionId]?.name} · Room ${maps.rooms[e.roomId]?.name} · ${
+      maps.faculty[e.facultyId]?.name
+    }\n${e.day} ${e.start} to ${fmt(toMin(e.start) + e.durationMins)}`;
 
-    if (!canEdit) {
+    if (!access.canEdit || !isMine(e)) {
       Alert.alert(course?.name || 'Class', info);
       return;
     }
-
     Alert.alert(course?.name || 'Class', info, [
       { text: 'Close', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => removeClass(e.id) },
     ]);
   };
 
+  // ---------- LOADING ----------
+
+  if (loading && entries.length === 0) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Loading timetable…</Text>
+      </View>
+    );
+  }
+
   // ---------- NEW CLASS FORM ----------
 
   if (editing) {
-    const course = courseOf(form.courseId);
-    const facultyChoices = FACULTY.filter((f) => !course || f.departmentId === course.departmentId);
-    const hasFaculty = facultyChoices.some((f) => f.id === form.facultyId);
-
     return (
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => setEditing(false)} style={s.backRow}>
@@ -206,21 +276,14 @@ const TimetableScreen = ({ route }) => {
 
         <Text style={s.fieldLabel}>Course</Text>
         <View style={s.chipWrap}>
-          {COURSES.map((co) => (
-            <Chip
-              key={co.id}
-              s={s}
-              active={form.courseId === co.id}
-              label={co.code}
-              sub={co.name}
-              onPress={() => setField('courseId', co.id)}
-            />
+          {courseChoices.map((co) => (
+            <Chip key={co.id} s={s} active={form.courseId === co.id} label={co.code} sub={co.name} onPress={() => setField('courseId', co.id)} />
           ))}
         </View>
 
         <Text style={s.fieldLabel}>Section</Text>
         <View style={s.chipWrap}>
-          {SECTIONS.map((sec) => (
+          {sectionFormChoices.map((sec) => (
             <Chip
               key={sec.id}
               s={s}
@@ -240,26 +303,17 @@ const TimetableScreen = ({ route }) => {
               s={s}
               active={form.facultyId === f.id}
               label={f.name}
-              sub={DEPARTMENTS.find((d) => d.id === f.departmentId)?.name}
+              sub={departments.find((d) => d.id === f.departmentId)?.name}
               onPress={() => setField('facultyId', f.id)}
             />
           ))}
         </View>
-        {course && !hasFaculty && facultyChoices.length === 0 ? (
-          <Text style={s.hint}>No faculty found in this department.</Text>
-        ) : null}
+        {facultyChoices.length === 0 ? <Text style={s.hint}>No faculty found in this department.</Text> : null}
 
         <Text style={s.fieldLabel}>Room</Text>
         <View style={s.chipWrap}>
-          {ROOMS.map((r) => (
-            <Chip
-              key={r.id}
-              s={s}
-              active={form.roomId === r.id}
-              label={r.name}
-              sub={`${r.type} · ${r.capacity} seats`}
-              onPress={() => setField('roomId', r.id)}
-            />
+          {roomChoices.map((r) => (
+            <Chip key={r.id} s={s} active={form.roomId === r.id} label={r.name} sub={`${r.type} · ${r.capacity} seats`} onPress={() => setField('roomId', r.id)} />
           ))}
         </View>
 
@@ -277,11 +331,10 @@ const TimetableScreen = ({ route }) => {
           ))}
         </View>
 
-        {course ? (
+        {formCourse ? (
           <View style={s.infoBox}>
             <Text style={s.infoText}>
-              {course.name} runs for {course.durationMins} minutes, ending at{' '}
-              {fmt(toMin(form.start) + course.durationMins)}.
+              {formCourse.name} runs for {formCourse.durationMins} minutes, ending at {fmt(toMin(form.start) + formCourse.durationMins)}.
             </Text>
           </View>
         ) : null}
@@ -309,11 +362,11 @@ const TimetableScreen = ({ route }) => {
         ) : null}
 
         <Pressable
-          style={[s.primaryBtn, !check?.ok && s.primaryBtnDisabled]}
+          style={[s.primaryBtn, (!check?.ok || saving) && s.primaryBtnDisabled]}
           onPress={saveClass}
-          disabled={!check?.ok}
+          disabled={!check?.ok || saving}
         >
-          <Text style={s.primaryBtnText}>Save class</Text>
+          <Text style={s.primaryBtnText}>{saving ? 'Saving…' : 'Save class'}</Text>
         </Pressable>
 
         <Pressable style={s.secondaryBtn} onPress={() => setEditing(false)}>
@@ -325,68 +378,73 @@ const TimetableScreen = ({ route }) => {
 
   // ---------- TIMETABLE VIEW ----------
 
-  const TIMELINE_H = (GRID_END - GRID_START) / 60 * ROW_H;
+  const TIMELINE_H = ((GRID_END - GRID_START) / 60) * ROW_H;
+  const headerSub = isFaculty
+    ? 'Your weekly classes'
+    : access.canChooseDept
+      ? 'All departments'
+      : `${departments.find((d) => d.id === access.departmentId)?.name || ''} department`;
 
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-      {/* HEADER */}
       <View style={s.headerRow}>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>Timetable</Text>
-          <Text style={s.subtitle}>
-            {role === 'faculty' ? 'Your weekly classes' : 'Weekly schedule by department and section'}
-          </Text>
+          <Text style={s.subtitle}>{headerSub}</Text>
         </View>
-        {canEdit ? (
+        {access.canEdit ? (
           <Pressable style={s.newBtn} onPress={openNew}>
             <Text style={s.newBtnText}>+ New</Text>
           </Pressable>
         ) : null}
       </View>
 
-      {/* STATS */}
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not load the timetable</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
+
       <View style={s.statsRow}>
-        <StatCard s={s} value={visible.length} label="Classes" colorKey="primary" c={c} />
-        <StatCard s={s} value={roomsInUse} label="Rooms used" colorKey="sky" c={c} />
-        <StatCard s={s} value={weekClashes} label="Clashes" colorKey={weekClashes ? 'red' : 'mint'} c={c} />
+        <StatCard s={s} c={c} value={visible.length} label="Classes" colorKey="primary" />
+        <StatCard s={s} c={c} value={roomsInUse} label="Rooms used" colorKey="sky" />
+        <StatCard s={s} c={c} value={weekClashes} label="Clashes" colorKey={weekClashes ? 'red' : 'mint'} />
       </View>
 
-      {/* DEPARTMENT FILTER */}
-      {role !== 'faculty' ? (
+      {!isFaculty ? (
         <>
-          <Text style={s.sectionLabel}>DEPARTMENT</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
-            {[{ id: 'all', name: 'All departments' }, ...DEPARTMENTS].map((d) => (
-              <Chip
-                key={d.id}
-                s={s}
-                active={deptFilter === d.id}
-                label={d.name}
-                onPress={() => {
-                  setDeptFilter(d.id);
-                  setSectionFilter('all');
-                }}
-              />
-            ))}
-          </ScrollView>
+          {access.canChooseDept ? (
+            <>
+              <Text style={s.sectionLabel}>DEPARTMENT</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+                {[{ id: 'all', name: 'All departments' }, ...departments].map((d) => (
+                  <Chip
+                    key={d.id}
+                    s={s}
+                    active={deptFilter === d.id}
+                    label={d.name}
+                    onPress={() => {
+                      setDeptFilter(d.id);
+                      setSectionFilter('all');
+                    }}
+                  />
+                ))}
+              </ScrollView>
+            </>
+          ) : null}
 
           <Text style={s.sectionLabel}>SECTION</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
             <Chip s={s} active={sectionFilter === 'all'} label="All sections" onPress={() => setSectionFilter('all')} />
             {sectionChoices.map((sec) => (
-              <Chip
-                key={sec.id}
-                s={s}
-                active={sectionFilter === sec.id}
-                label={sec.name}
-                onPress={() => setSectionFilter(sec.id)}
-              />
+              <Chip key={sec.id} s={s} active={sectionFilter === sec.id} label={sec.name} onPress={() => setSectionFilter(sec.id)} />
             ))}
           </ScrollView>
         </>
       ) : null}
 
-      {/* DAY TABS */}
       <View style={s.dayRow}>
         {DAYS.map((d) => {
           const active = d === day;
@@ -399,12 +457,11 @@ const TimetableScreen = ({ route }) => {
         })}
       </View>
 
-      {/* TIMELINE */}
       <View style={s.card}>
         <View style={[s.timeline, { height: TIMELINE_H }]}>
           {HOURS.map((h) => (
             <View key={h} style={[s.hourRow, { top: (h - 8) * ROW_H }]}>
-              <Text style={s.hourLabel}>{hourLabel(h)}</Text>
+              <Text style={s.hourText}>{hourLabel(h)}</Text>
               <View style={s.hourLine} />
             </View>
           ))}
@@ -414,7 +471,7 @@ const TimetableScreen = ({ route }) => {
             const height = Math.max((e.durationMins / 60) * ROW_H - 6, 64);
             const color = colorFor(e.courseId);
             const clash = clashIds.has(e.id);
-            const course = courseOf(e.courseId);
+            const course = maps.courses[e.courseId];
 
             return (
               <Pressable
@@ -442,7 +499,7 @@ const TimetableScreen = ({ route }) => {
                     {course?.name}
                   </Text>
                   <Text style={s.blockMeta} numberOfLines={1}>
-                    {sectionOf(e.sectionId)?.name} · {roomOf(e.roomId)?.name} · {facultyOf(e.facultyId)?.name}
+                    {maps.sections[e.sectionId]?.name} · {maps.rooms[e.roomId]?.name} · {maps.faculty[e.facultyId]?.name}
                   </Text>
                 </View>
               </Pressable>
@@ -452,20 +509,18 @@ const TimetableScreen = ({ route }) => {
           {dayItems.length === 0 ? (
             <View style={s.emptyWrap}>
               <Text style={s.emptyTitle}>No classes on {day}</Text>
-              <Text style={s.emptyText}>
-                {canEdit ? 'Tap + New to schedule one.' : 'Enjoy your free day.'}
-              </Text>
+              <Text style={s.emptyText}>{access.canEdit ? 'Tap + New to schedule one.' : 'Enjoy your free day.'}</Text>
             </View>
           ) : null}
         </View>
       </View>
 
-      <Text style={s.demoNote}>Sample data · tap a class to see details{canEdit ? ' or delete it' : ''}</Text>
+      <Text style={s.demoNote}>
+        Live data · tap a class to see details{access.canEdit ? ' or delete it' : ''}
+      </Text>
     </ScrollView>
   );
 };
-
-// ---------- SMALL PIECES ----------
 
 const Chip = ({ s, active, label, sub, onPress }) => (
   <Pressable onPress={onPress} style={[s.chip, active && s.chipActive]}>
@@ -484,61 +539,31 @@ const StatCard = ({ s, c, value, label, colorKey }) => (
 
 export default TimetableScreen;
 
-// ---------- STYLES ----------
-
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
-    scroll: {
-      paddingHorizontal: 20,
-      paddingTop: 18,
-      paddingBottom: 40,
-    },
-
+    scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3, lineHeight: 17 },
-
     headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    newBtn: {
-      backgroundColor: c.primary,
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      paddingVertical: 11,
-      ...shadow,
-    },
+    newBtn: { backgroundColor: c.primary, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 11, ...shadow },
     newBtnText: { color: c.white, fontSize: 13, fontWeight: '800' },
 
-    statsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 },
-    statCard: {
-      flex: 1,
-      backgroundColor: c.surface,
-      borderRadius: 20,
-      padding: 14,
-      marginHorizontal: 4,
-      ...shadow,
-    },
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginBottom: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
+
+    statsRow: { flexDirection: 'row', marginHorizontal: -5, marginBottom: 18 },
+    statCard: { flex: 1, backgroundColor: c.surface, borderRadius: 20, padding: 14, marginHorizontal: 5, ...shadow },
     statDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 10 },
     statValue: { fontSize: 22, fontWeight: '800' },
     statLabel: { fontSize: 11, color: c.muted, fontWeight: '700', marginTop: 2 },
 
-    sectionLabel: {
-      fontSize: 11,
-      fontWeight: '800',
-      color: c.muted,
-      letterSpacing: 1.2,
-      marginBottom: 8,
-      marginTop: 4,
-    },
+    sectionLabel: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginBottom: 8, marginTop: 4 },
     filterRow: { paddingBottom: 12 },
-
-    chip: {
-      backgroundColor: c.surface,
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      marginRight: 8,
-      marginBottom: 8,
-      ...shadow,
-    },
+    chip: { backgroundColor: c.surface, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, marginBottom: 8, ...shadow },
     chipActive: { backgroundColor: c.primary },
     chipText: { fontSize: 12, fontWeight: '800', color: c.text },
     chipTextActive: { color: c.white },
@@ -546,56 +571,21 @@ const makeStyles = (c, shadow) =>
     chipSubActive: { color: 'rgba(255,255,255,0.85)' },
     chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 6 },
 
-    dayRow: { flexDirection: 'row', marginBottom: 14 },
-    dayTab: {
-      flex: 1,
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      paddingVertical: 10,
-      alignItems: 'center',
-      marginHorizontal: 3,
-      ...shadow,
-    },
+    dayRow: { flexDirection: 'row', marginBottom: 14, marginHorizontal: -3 },
+    dayTab: { flex: 1, backgroundColor: c.surface, borderRadius: 18, paddingVertical: 10, alignItems: 'center', marginHorizontal: 3, ...shadow },
     dayTabActive: { backgroundColor: c.primary },
     dayName: { fontSize: 13, fontWeight: '800', color: c.text },
     dayNameActive: { color: c.white },
     dayCount: { fontSize: 9, color: c.muted, marginTop: 3, fontWeight: '700' },
     dayCountActive: { color: 'rgba(255,255,255,0.9)' },
 
-    card: {
-      backgroundColor: c.surface,
-      borderRadius: 24,
-      padding: 12,
-      ...shadow,
-    },
-
-    timeline: {
-      position: 'relative',
-    },
-    hourRow: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      flexDirection: 'row',
-      alignItems: 'center',
-      height: 1,
-    },
-    hourLabel: {
-      width: 52,
-      fontSize: 10,
-      fontWeight: '700',
-      color: c.muted,
-    },
+    card: { backgroundColor: c.surface, borderRadius: 24, padding: 12, ...shadow },
+    timeline: { position: 'relative' },
+    hourRow: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center', height: 1 },
+    hourText: { width: 52, fontSize: 10, fontWeight: '700', color: c.muted },
     hourLine: { flex: 1, height: 1, backgroundColor: c.border },
 
-    block: {
-      position: 'absolute',
-      left: 60,
-      right: 4,
-      borderRadius: 16,
-      flexDirection: 'row',
-      overflow: 'hidden',
-    },
+    block: { position: 'absolute', left: 60, right: 4, borderRadius: 16, flexDirection: 'row', overflow: 'hidden' },
     blockPressed: { opacity: 0.85 },
     blockBar: { width: 5 },
     blockBody: { flex: 1, paddingHorizontal: 10, paddingVertical: 8, justifyContent: 'center' },
@@ -603,87 +593,31 @@ const makeStyles = (c, shadow) =>
     blockTime: { fontSize: 10, fontWeight: '800' },
     blockName: { fontSize: 13, fontWeight: '800', color: c.text, marginTop: 2 },
     blockMeta: { fontSize: 10, color: c.muted, marginTop: 2 },
-
     badge: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
     badgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
 
-    emptyWrap: {
-      position: 'absolute',
-      top: 80,
-      left: 0,
-      right: 0,
-      alignItems: 'center',
-    },
+    emptyWrap: { position: 'absolute', top: 80, left: 0, right: 0, alignItems: 'center' },
     emptyTitle: { fontSize: 14, fontWeight: '800', color: c.text },
     emptyText: { fontSize: 12, color: c.muted, marginTop: 4 },
-
     demoNote: { fontSize: 10, color: c.muted, textAlign: 'center', marginTop: 16 },
 
-    // FORM
     backRow: { marginBottom: 14 },
     backText: { fontSize: 13, fontWeight: '800', color: c.primary },
-    fieldLabel: {
-      fontSize: 12,
-      fontWeight: '800',
-      color: c.primary,
-      marginTop: 14,
-      marginBottom: 8,
-    },
+    fieldLabel: { fontSize: 12, fontWeight: '800', color: c.primary, marginTop: 14, marginBottom: 8 },
     hint: { fontSize: 11, color: c.amber, marginTop: 2 },
-
-    infoBox: {
-      backgroundColor: c.skySoft,
-      borderRadius: 16,
-      padding: 14,
-      marginTop: 18,
-    },
+    infoBox: { backgroundColor: c.skySoft, borderRadius: 16, padding: 14, marginTop: 18 },
     infoText: { fontSize: 12, color: c.text, lineHeight: 18 },
-
-    checkBtn: {
-      borderWidth: 1.5,
-      borderColor: c.primary,
-      borderRadius: 18,
-      paddingVertical: 14,
-      alignItems: 'center',
-      marginTop: 16,
-    },
+    checkBtn: { borderWidth: 1.5, borderColor: c.primary, borderRadius: 18, paddingVertical: 14, alignItems: 'center', marginTop: 16 },
     checkBtnText: { color: c.primary, fontSize: 14, fontWeight: '800' },
-
-    resultOk: {
-      backgroundColor: c.mintSoft,
-      borderRadius: 18,
-      padding: 16,
-      marginTop: 14,
-    },
+    resultOk: { backgroundColor: c.mintSoft, borderRadius: 18, padding: 16, marginTop: 14 },
     resultOkTitle: { fontSize: 14, fontWeight: '800', color: c.mint },
     resultText: { fontSize: 12, color: c.text, marginTop: 4, lineHeight: 18 },
-
-    resultBad: {
-      backgroundColor: c.redSoft,
-      borderRadius: 18,
-      padding: 16,
-      marginTop: 14,
-    },
+    resultBad: { backgroundColor: c.redSoft, borderRadius: 18, padding: 16, marginTop: 14 },
     resultBadTitle: { fontSize: 14, fontWeight: '800', color: c.red, marginBottom: 6 },
     resultBadItem: { fontSize: 12, color: c.text, lineHeight: 19 },
-
-    primaryBtn: {
-      backgroundColor: c.primary,
-      borderRadius: 18,
-      paddingVertical: 16,
-      alignItems: 'center',
-      marginTop: 16,
-      ...shadow,
-    },
+    primaryBtn: { backgroundColor: c.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginTop: 16, ...shadow },
     primaryBtnDisabled: { backgroundColor: c.border },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
-
-    secondaryBtn: {
-      backgroundColor: c.pinkSoft,
-      borderRadius: 18,
-      paddingVertical: 15,
-      alignItems: 'center',
-      marginTop: 10,
-    },
+    secondaryBtn: { backgroundColor: c.pinkSoft, borderRadius: 18, paddingVertical: 15, alignItems: 'center', marginTop: 10 },
     secondaryBtnText: { color: c.pink, fontSize: 14, fontWeight: '800' },
   });
