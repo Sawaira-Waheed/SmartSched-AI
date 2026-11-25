@@ -112,3 +112,72 @@ export const deleteTimetableEntry = async (id) => {
   const { error } = await supabase.from('timetable').delete().eq('id', id);
   if (error) throw new Error(error.message);
 };
+
+// COURSES
+export const saveCourse = async (record) => {
+  const row = {
+    code: record.code,
+    name: record.name,
+    credit_hours: record.creditHours,
+    department_id: record.departmentId,
+    classes_per_day: record.classesPerDay,
+    duration_mins: record.durationMins,
+    room_type: record.roomType,
+  };
+  if (record.id) {
+    const { error } = await supabase.from('courses').update(row).eq('id', record.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from('courses').insert({ id: `c${Date.now()}`, ...row });
+    if (error) throw new Error(error.message);
+  }
+};
+
+export const deleteCourse = async (id) => {
+  const { error } = await supabase.from('courses').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
+// SECTIONS
+export const saveSection = async (record) => {
+  const row = {
+    name: record.name,
+    semester: record.semester,
+    student_count: record.studentCount,
+    department_id: record.departmentId,
+  };
+  if (record.id) {
+    const { error } = await supabase.from('sections').update(row).eq('id', record.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from('sections').insert({ id: `s${Date.now()}`, ...row });
+    if (error) throw new Error(error.message);
+  }
+};
+
+export const deleteSection = async (id) => {
+  const { error } = await supabase.from('sections').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
+// ROOMS
+export const saveRoom = async (record) => {
+  const row = {
+    name: record.name,
+    type: record.type,
+    capacity: record.capacity,
+    department_id: record.departmentId,
+  };
+  if (record.id) {
+    const { error } = await supabase.from('rooms').update(row).eq('id', record.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from('rooms').insert({ id: `r${Date.now()}`, ...row });
+    if (error) throw new Error(error.message);
+  }
+};
+
+export const deleteRoom = async (id) => {
+  const { error } = await supabase.from('rooms').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+};

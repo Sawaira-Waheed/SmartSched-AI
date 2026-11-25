@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
-import { COURSES, DEPARTMENTS, TIMETABLE, SECTIONS } from '../data/sampleData';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { DEPARTMENTS, DAYS } from '../data/sampleData';
 import { useTheme } from '../theme/theme';
 import { getAccess, inScope } from '../utils/permissions';
+import { fetchCourses, fetchDepartments, fetchTimetable, fetchSections, saveCourse, deleteCourse } from '../lib/data';
 
 const DURATIONS = [60, 90, 120, 180];
 const ROOM_TYPES = ['Lecture', 'Lab'];
@@ -17,25 +18,50 @@ const EMPTY_FORM = {
   roomType: 'Lecture',
 };
 
-const deptName = (id) => DEPARTMENTS.find((d) => d.id === id)?.name || 'Unassigned';
-const usageOf = (courseId) => TIMETABLE.filter((t) => t.courseId === courseId);
-const sectionName = (id) => SECTIONS.find((sec) => sec.id === id)?.name || '';
-
 const CoursesScreen = ({ route }) => {
   const { c, shadow } = useTheme();
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
   const access = getAccess(route?.params);
 
-  const [list, setList] = useState(COURSES);
+  const [list, setList] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [timetable, setTimetable] = useState([]);
+  const [sections, setSections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
-  const [editing, setEditing] = useState(null); // null, or { id: string|null, values: {...} }
+  const [editing, setEditing] = useState(null);
   const [errors, setErrors] = useState({});
 
-  // Only the courses this user is allowed to see
-  const scoped = list.filter((co) => inScope(access, co));
+  const deptName = (id) => departments.find((d) => d.id === id)?.name || 'Unassigned';
+  const sectionName = (id) => sections.find((sec) => sec.id === id)?.name || '';
+  const usageOf = (courseId) => timetable.filter((t) => t.courseId === courseId);
 
+  const load = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [co, de, tt, se] = await Promise.all([fetchCourses(), fetchDepartments(), fetchTimetable(), fetchSections()]);
+      setList(co);
+      setDepartments(de);
+      setTimetable(tt);
+      setSections(se);
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  // Extra check on the client. The database already limits the rows it returns.
+  const scoped = list.filter((co) => inScope(access, co));
   const q = query.trim().toLowerCase();
   const filtered = scoped.filter((co) => {
     const matchesDept = !access.canChooseDept || deptFilter === 'all' || co.departmentId === deptFilter;
@@ -47,15 +73,10 @@ const CoursesScreen = ({ route }) => {
   const totalCredits = scoped.reduce((sum, co) => sum + co.creditHours, 0);
   const labCount = scoped.filter((co) => co.roomType === 'Lab').length;
 
-  // ---------- ACTIONS ----------
-
   const openAdd = () => {
     if (!access.canEdit) return;
     setErrors({});
-    setEditing({
-      id: null,
-      values: { ...EMPTY_FORM, departmentId: access.canChooseDept ? '' : access.departmentId },
-    });
+    setEditing({ id: null, values: { ...EMPTY_FORM, departmentId: access.canChooseDept ? '' : access.departmentId } });
   };
 
   const openEdit = (course) => {
@@ -88,7 +109,6 @@ const CoursesScreen = ({ route }) => {
     } else if (list.some((co) => co.code === code && co.id !== id)) {
       e.code = 'This code is already used';
     }
-
     if (!v.name.trim()) e.name = 'Course name is required';
 
     const credits = Number(v.creditHours);
@@ -105,30 +125,33 @@ const CoursesScreen = ({ route }) => {
     return e;
   };
 
-  const saveForm = () => {
-    if (!access.canEdit) return;
+  const saveForm = async () => {
+    if (!access.canEdit || saving) return;
     const v = editing.values;
     const found = validate(v, editing.id);
     setErrors(found);
     if (Object.keys(found).length) return;
 
-    const record = {
-      code: v.code.trim().toUpperCase(),
-      name: v.name.trim(),
-      creditHours: Number(v.creditHours),
-      departmentId: v.departmentId,
-      classesPerDay: Number(v.classesPerDay),
-      durationMins: v.durationMins,
-      roomType: v.roomType,
-    };
-
-    if (editing.id) {
-      setList((prev) => prev.map((co) => (co.id === editing.id ? { ...co, ...record } : co)));
-    } else {
-      setList((prev) => [...prev, { id: `c${Date.now()}`, ...record }]);
+    setSaving(true);
+    try {
+      await saveCourse({
+        id: editing.id,
+        code: v.code.trim().toUpperCase(),
+        name: v.name.trim(),
+        creditHours: Number(v.creditHours),
+        departmentId: v.departmentId,
+        classesPerDay: Number(v.classesPerDay),
+        durationMins: v.durationMins,
+        roomType: v.roomType,
+      });
+      setEditing(null);
+      setErrors({});
+      await load();
+    } catch (e) {
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setSaving(false);
     }
-    setErrors({});
-    setEditing(null);
   };
 
   const confirmDelete = (course) => {
@@ -136,10 +159,7 @@ const CoursesScreen = ({ route }) => {
 
     const used = usageOf(course.id).length;
     if (used > 0) {
-      Alert.alert(
-        'Cannot delete yet',
-        `${course.name} is scheduled in ${used} timetable class${used > 1 ? 'es' : ''}. Remove those classes first.`,
-      );
+      Alert.alert('Cannot delete yet', `${course.name} is scheduled in ${used} timetable class${used > 1 ? 'es' : ''}. Remove those classes first.`);
       return;
     }
 
@@ -148,20 +168,31 @@ const CoursesScreen = ({ route }) => {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => {
-          setList((prev) => prev.filter((co) => co.id !== course.id));
-          setSelectedId(null);
+        onPress: async () => {
+          try {
+            await deleteCourse(course.id);
+            setSelectedId(null);
+            await load();
+          } catch (e) {
+            Alert.alert('Could not delete', e.message);
+          }
         },
       },
     ]);
   };
 
-  // ---------- FORM VIEW ----------
+  if (loading && list.length === 0) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Loading courses…</Text>
+      </View>
+    );
+  }
 
   if (editing) {
     const isNew = !editing.id;
-    const set = (key) => (value) =>
-      setEditing((prev) => ({ ...prev, values: { ...prev.values, [key]: value } }));
+    const set = (key) => (value) => setEditing((prev) => ({ ...prev, values: { ...prev.values, [key]: value } }));
 
     return (
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -197,7 +228,7 @@ const CoursesScreen = ({ route }) => {
         <Field s={s} label="Department" error={errors.departmentId}>
           {access.canChooseDept ? (
             <View style={s.chipWrap}>
-              {DEPARTMENTS.map((d) => {
+              {departments.map((d) => {
                 const active = editing.values.departmentId === d.id;
                 return (
                   <Pressable key={d.id} onPress={() => set('departmentId')(d.id)} style={[s.chip, active && s.chipActive]}>
@@ -217,22 +248,12 @@ const CoursesScreen = ({ route }) => {
         <View style={s.twoCol}>
           <View style={{ flex: 1, marginRight: 8 }}>
             <Field s={s} label="Credit hours" error={errors.creditHours}>
-              <TextInput
-                style={s.input}
-                keyboardType="number-pad"
-                value={editing.values.creditHours}
-                onChangeText={set('creditHours')}
-              />
+              <TextInput style={s.input} keyboardType="number-pad" value={editing.values.creditHours} onChangeText={set('creditHours')} />
             </Field>
           </View>
           <View style={{ flex: 1, marginLeft: 8 }}>
             <Field s={s} label="Classes per day" error={errors.classesPerDay}>
-              <TextInput
-                style={s.input}
-                keyboardType="number-pad"
-                value={editing.values.classesPerDay}
-                onChangeText={set('classesPerDay')}
-              />
+              <TextInput style={s.input} keyboardType="number-pad" value={editing.values.classesPerDay} onChangeText={set('classesPerDay')} />
             </Field>
           </View>
         </View>
@@ -261,8 +282,8 @@ const CoursesScreen = ({ route }) => {
           })}
         </View>
 
-        <Pressable style={s.primaryBtn} onPress={saveForm}>
-          <Text style={s.primaryBtnText}>{isNew ? 'Save course' : 'Save changes'}</Text>
+        <Pressable style={[s.primaryBtn, saving && { opacity: 0.6 }]} onPress={saveForm} disabled={saving}>
+          <Text style={s.primaryBtnText}>{saving ? 'Saving…' : isNew ? 'Save course' : 'Save changes'}</Text>
         </Pressable>
 
         <Pressable style={s.secondaryBtn} onPress={cancelForm}>
@@ -271,8 +292,6 @@ const CoursesScreen = ({ route }) => {
       </ScrollView>
     );
   }
-
-  // ---------- DETAILS VIEW ----------
 
   if (selected) {
     const uses = usageOf(selected.id);
@@ -295,12 +314,7 @@ const CoursesScreen = ({ route }) => {
           <InfoTile s={s} label="Credit hours" value={selected.creditHours} color={c.primary} />
           <InfoTile s={s} label="Classes per day" value={selected.classesPerDay} color={c.sky} />
           <InfoTile s={s} label="Duration" value={`${selected.durationMins} min`} color={c.mint} />
-          <InfoTile
-            s={s}
-            label="Room type"
-            value={selected.roomType}
-            color={selected.roomType === 'Lab' ? c.amber : c.pink}
-          />
+          <InfoTile s={s} label="Room type" value={selected.roomType} color={selected.roomType === 'Lab' ? c.amber : c.pink} />
         </View>
 
         <Text style={s.sectionLabel}>SCHEDULED CLASSES</Text>
@@ -342,8 +356,6 @@ const CoursesScreen = ({ route }) => {
     );
   }
 
-  // ---------- LIST VIEW ----------
-
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={s.headerRow}>
@@ -358,16 +370,22 @@ const CoursesScreen = ({ route }) => {
         ) : null}
       </View>
 
-      {access.canChooseDept ? null : (
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not load courses</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
+
+      {!access.canChooseDept ? (
         <View style={s.scopeBanner}>
           <Text style={s.scopeTitle}>{deptName(access.departmentId)}</Text>
           <Text style={s.scopeText}>
-            {access.canEdit
-              ? 'You can add, edit and remove courses in your department.'
-              : 'View only. Showing courses in your department.'}
+            {access.canEdit ? 'You can add, edit and remove courses in your department.' : 'View only. Showing courses in your department.'}
           </Text>
         </View>
-      )}
+      ) : null}
 
       <View style={s.statsRow}>
         <StatTile s={s} value={scoped.length} label="Courses" color={c.primary} />
@@ -377,18 +395,12 @@ const CoursesScreen = ({ route }) => {
 
       <View style={s.searchBox}>
         <Text style={s.searchIcon}>⌕</Text>
-        <TextInput
-          style={s.searchInput}
-          placeholder="Search by name or code"
-          placeholderTextColor={c.muted}
-          value={query}
-          onChangeText={setQuery}
-        />
+        <TextInput style={s.searchInput} placeholder="Search by name or code" placeholderTextColor={c.muted} value={query} onChangeText={setQuery} />
       </View>
 
       {access.canChooseDept ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow} keyboardShouldPersistTaps="handled">
-          {[{ id: 'all', name: 'All departments' }, ...DEPARTMENTS].map((d) => {
+          {[{ id: 'all', name: 'All departments' }, ...departments].map((d) => {
             const active = deptFilter === d.id;
             return (
               <Pressable key={d.id} onPress={() => setDeptFilter(d.id)} style={[s.chip, active && s.chipActive]}>
@@ -405,17 +417,12 @@ const CoursesScreen = ({ route }) => {
         </View>
       ) : (
         filtered.map((co) => (
-          <Pressable
-            key={co.id}
-            onPress={() => setSelectedId(co.id)}
-            style={({ pressed }) => [s.card, pressed && s.pressed]}
-          >
+          <Pressable key={co.id} onPress={() => setSelectedId(co.id)} style={({ pressed }) => [s.card, pressed && s.pressed]}>
             <View style={s.codeTile}>
               <Text style={s.codeTileText} numberOfLines={1}>
                 {co.code}
               </Text>
             </View>
-
             <View style={{ flex: 1 }}>
               <Text style={s.cardName} numberOfLines={1}>
                 {co.name}
@@ -423,7 +430,6 @@ const CoursesScreen = ({ route }) => {
               <Text style={s.cardMeta} numberOfLines={1}>
                 {deptName(co.departmentId)}
               </Text>
-
               <View style={s.tagRow}>
                 <View style={[s.tag, { backgroundColor: c.primarySoft }]}>
                   <Text style={[s.tagText, { color: c.primary }]}>{co.creditHours} cr</Text>
@@ -436,7 +442,6 @@ const CoursesScreen = ({ route }) => {
                 </View>
               </View>
             </View>
-
             <Text style={s.chevron}>›</Text>
           </Pressable>
         ))
@@ -467,7 +472,7 @@ const Field = ({ s, label, error, children }) => (
   <View style={s.field}>
     <Text style={s.fieldLabel}>{label}</Text>
     {children}
-    {error ? <Text style={s.errorText}>{error}</Text> : null}
+    {error ? <Text style={s.errorTextField}>{error}</Text> : null}
   </View>
 );
 
@@ -476,6 +481,8 @@ export default CoursesScreen;
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
     title: { fontSize: 26, fontWeight: '800', color: c.text },
@@ -485,32 +492,22 @@ const makeStyles = (c, shadow) =>
     addBtn: { backgroundColor: c.primary, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 11, ...shadow },
     addBtnText: { color: c.white, fontSize: 13, fontWeight: '800' },
 
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginBottom: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    errorTextField: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
+
     scopeBanner: { backgroundColor: c.primarySoft, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 14 },
     scopeTitle: { fontSize: 13, fontWeight: '800', color: c.primary },
     scopeText: { fontSize: 11, color: c.text, marginTop: 3, lineHeight: 16 },
 
     statsRow: { flexDirection: 'row', marginHorizontal: -5, marginBottom: 16 },
-    statTile: {
-      flex: 1,
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      paddingVertical: 14,
-      alignItems: 'center',
-      marginHorizontal: 5,
-      ...shadow,
-    },
+    statTile: { flex: 1, backgroundColor: c.surface, borderRadius: 18, paddingVertical: 14, alignItems: 'center', marginHorizontal: 5, ...shadow },
     statValue: { fontSize: 22, fontWeight: '800' },
     statLabel: { fontSize: 10, color: c.muted, fontWeight: '700', marginTop: 3 },
 
-    searchBox: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      paddingHorizontal: 14,
-      marginBottom: 12,
-      ...shadow,
-    },
+    searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 18, paddingHorizontal: 14, marginBottom: 12, ...shadow },
     searchIcon: { fontSize: 18, color: c.primary, marginRight: 8 },
     searchInput: { flex: 1, height: 48, color: c.text, fontSize: 14 },
 
@@ -521,25 +518,8 @@ const makeStyles = (c, shadow) =>
     chipTextActive: { color: c.white },
     chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
 
-    card: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: c.surface,
-      borderRadius: 22,
-      padding: 14,
-      marginBottom: 12,
-      ...shadow,
-    },
-    codeTile: {
-      width: 64,
-      height: 64,
-      borderRadius: 18,
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 14,
-      paddingHorizontal: 4,
-    },
+    card: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 22, padding: 14, marginBottom: 12, ...shadow },
+    codeTile: { width: 64, height: 64, borderRadius: 18, backgroundColor: c.primarySoft, alignItems: 'center', justifyContent: 'center', marginRight: 14, paddingHorizontal: 4 },
     codeTileText: { fontSize: 11, fontWeight: '800', color: c.primary },
     cardName: { fontSize: 15, fontWeight: '800', color: c.text },
     cardMeta: { fontSize: 11, color: c.muted, marginTop: 2 },
@@ -561,36 +541,13 @@ const makeStyles = (c, shadow) =>
     heroMeta: { fontSize: 12, color: c.muted, marginTop: 4 },
 
     infoGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -5, marginBottom: 6 },
-    infoTile: {
-      width: '47%',
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      padding: 14,
-      margin: 5,
-      ...shadow,
-    },
+    infoTile: { width: '47%', backgroundColor: c.surface, borderRadius: 18, padding: 14, margin: 5, ...shadow },
     infoLabel: { fontSize: 10, color: c.muted, fontWeight: '700' },
     infoValue: { fontSize: 16, fontWeight: '800', marginTop: 4 },
 
     sectionLabel: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 14, marginBottom: 10 },
-    useRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      padding: 12,
-      marginBottom: 10,
-      ...shadow,
-    },
-    dayBadge: {
-      width: 50,
-      height: 50,
-      borderRadius: 14,
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
-    },
+    useRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 18, padding: 12, marginBottom: 10, ...shadow },
+    dayBadge: { width: 50, height: 50, borderRadius: 14, backgroundColor: c.primarySoft, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     dayBadgeText: { fontSize: 11, fontWeight: '800', color: c.primary },
     useTitle: { fontSize: 14, fontWeight: '800', color: c.text },
     useMeta: { fontSize: 11, color: c.muted, marginTop: 3 },
@@ -602,31 +559,14 @@ const makeStyles = (c, shadow) =>
 
     field: { marginBottom: 18 },
     fieldLabel: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
-    input: {
-      backgroundColor: c.surface,
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      height: 50,
-      color: c.text,
-      fontSize: 14,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    errorText: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
+    input: { backgroundColor: c.surface, borderRadius: 16, paddingHorizontal: 14, height: 50, color: c.text, fontSize: 14, borderWidth: 1, borderColor: c.border },
     twoCol: { flexDirection: 'row' },
 
     lockedBox: { backgroundColor: c.primarySoft, borderRadius: 16, padding: 14 },
     lockedText: { fontSize: 14, fontWeight: '800', color: c.primary },
     lockedHint: { fontSize: 11, color: c.muted, marginTop: 4 },
 
-    primaryBtn: {
-      backgroundColor: c.primary,
-      borderRadius: 18,
-      paddingVertical: 16,
-      alignItems: 'center',
-      marginTop: 6,
-      ...shadow,
-    },
+    primaryBtn: { backgroundColor: c.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginTop: 6, ...shadow },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
     secondaryBtn: { backgroundColor: c.pinkSoft, borderRadius: 18, paddingVertical: 15, alignItems: 'center', marginTop: 10 },
     secondaryBtnText: { color: c.pink, fontSize: 14, fontWeight: '800' },

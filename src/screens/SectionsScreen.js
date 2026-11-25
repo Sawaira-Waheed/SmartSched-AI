@@ -1,31 +1,77 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
-import { SECTIONS, DEPARTMENTS, COURSES, TIMETABLE, DAYS, FACULTY, ROOMS } from '../data/sampleData';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { DAYS } from '../data/sampleData';
 import { useTheme } from '../theme/theme';
 import { getAccess, inScope } from '../utils/permissions';
+import {
+  fetchSections,
+  fetchDepartments,
+  fetchCourses,
+  fetchTimetable,
+  fetchRooms,
+  fetchFaculty,
+  saveSection,
+  deleteSection,
+} from '../lib/data';
 
 const EMPTY_FORM = { name: '', semester: '1', studentCount: '', departmentId: '' };
 const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
-
-const deptName = (id) => DEPARTMENTS.find((d) => d.id === id)?.name || 'Unassigned';
-const usageOf = (sectionId) => TIMETABLE.filter((t) => t.sectionId === sectionId);
-const courseOf = (id) => COURSES.find((co) => co.id === id);
-const facultyName = (id) => FACULTY.find((f) => f.id === id)?.name || '';
-const roomName = (id) => ROOMS.find((r) => r.id === id)?.name || '';
 
 const SectionsScreen = ({ route }) => {
   const { c, shadow } = useTheme();
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
   const access = getAccess(route?.params);
 
-  const [list, setList] = useState(SECTIONS);
+  const [list, setList] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [timetable, setTimetable] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [faculty, setFaculty] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
-  const [editing, setEditing] = useState(null); // null, or { id: string|null, values: {...} }
+  const [editing, setEditing] = useState(null);
   const [errors, setErrors] = useState({});
 
-  // Only sections the user can see
+  const deptName = (id) => departments.find((d) => d.id === id)?.name || 'Unassigned';
+  const courseName = (id) => courses.find((co) => co.id === id)?.name || 'Course';
+  const roomName = (id) => rooms.find((r) => r.id === id)?.name || '';
+  const facultyName = (id) => faculty.find((f) => f.id === id)?.name || '';
+  const usageOf = (sectionId) => timetable.filter((t) => t.sectionId === sectionId);
+
+  const load = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [se, de, co, tt, ro, fa] = await Promise.all([
+        fetchSections(),
+        fetchDepartments(),
+        fetchCourses(),
+        fetchTimetable(),
+        fetchRooms(),
+        fetchFaculty(),
+      ]);
+      setList(se);
+      setDepartments(de);
+      setCourses(co);
+      setTimetable(tt);
+      setRooms(ro);
+      setFaculty(fa);
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
   const scoped = list.filter((sec) => inScope(access, sec));
   const q = query.trim().toLowerCase();
   const filtered = scoped.filter((sec) => {
@@ -36,8 +82,6 @@ const SectionsScreen = ({ route }) => {
   const selected = scoped.find((sec) => sec.id === selectedId);
   const totalStudents = scoped.reduce((sum, sec) => sum + sec.studentCount, 0);
   const weeklyClasses = scoped.reduce((sum, sec) => sum + usageOf(sec.id).length, 0);
-
-  // ---------- ACTIONS ----------
 
   const openAdd = () => {
     if (!access.canEdit) return;
@@ -87,27 +131,30 @@ const SectionsScreen = ({ route }) => {
     return e;
   };
 
-  const saveForm = () => {
-    if (!access.canEdit) return;
+  const saveForm = async () => {
+    if (!access.canEdit || saving) return;
     const v = editing.values;
     const found = validate(v, editing.id);
     setErrors(found);
     if (Object.keys(found).length) return;
 
-    const record = {
-      name: v.name.trim(),
-      semester: Number(v.semester),
-      studentCount: Number(v.studentCount),
-      departmentId: v.departmentId,
-    };
-
-    if (editing.id) {
-      setList((prev) => prev.map((sec) => (sec.id === editing.id ? { ...sec, ...record } : sec)));
-    } else {
-      setList((prev) => [...prev, { id: `s${Date.now()}`, ...record }]);
+    setSaving(true);
+    try {
+      await saveSection({
+        id: editing.id,
+        name: v.name.trim(),
+        semester: Number(v.semester),
+        studentCount: Number(v.studentCount),
+        departmentId: v.departmentId,
+      });
+      setEditing(null);
+      setErrors({});
+      await load();
+    } catch (e) {
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setSaving(false);
     }
-    setErrors({});
-    setEditing(null);
   };
 
   const confirmDelete = (sec) => {
@@ -115,10 +162,7 @@ const SectionsScreen = ({ route }) => {
 
     const used = usageOf(sec.id).length;
     if (used > 0) {
-      Alert.alert(
-        'Cannot delete yet',
-        `${sec.name} has ${used} timetable class${used > 1 ? 'es' : ''}. Remove those classes first.`,
-      );
+      Alert.alert('Cannot delete yet', `${sec.name} has ${used} timetable class${used > 1 ? 'es' : ''}. Remove those classes first.`);
       return;
     }
 
@@ -127,15 +171,27 @@ const SectionsScreen = ({ route }) => {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => {
-          setList((prev) => prev.filter((x) => x.id !== sec.id));
-          setSelectedId(null);
+        onPress: async () => {
+          try {
+            await deleteSection(sec.id);
+            setSelectedId(null);
+            await load();
+          } catch (e) {
+            Alert.alert('Could not delete', e.message);
+          }
         },
       },
     ]);
   };
 
-  // ---------- FORM ----------
+  if (loading && list.length === 0) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Loading sections…</Text>
+      </View>
+    );
+  }
 
   if (editing) {
     const isNew = !editing.id;
@@ -188,7 +244,7 @@ const SectionsScreen = ({ route }) => {
         <Field s={s} label="Department" error={errors.departmentId}>
           {access.canChooseDept ? (
             <View style={s.chipWrap}>
-              {DEPARTMENTS.map((d) => {
+              {departments.map((d) => {
                 const active = editing.values.departmentId === d.id;
                 return (
                   <Pressable key={d.id} onPress={() => set('departmentId')(d.id)} style={[s.chip, active && s.chipActive]}>
@@ -205,8 +261,8 @@ const SectionsScreen = ({ route }) => {
           )}
         </Field>
 
-        <Pressable style={s.primaryBtn} onPress={saveForm}>
-          <Text style={s.primaryBtnText}>{isNew ? 'Save section' : 'Save changes'}</Text>
+        <Pressable style={[s.primaryBtn, saving && { opacity: 0.6 }]} onPress={saveForm} disabled={saving}>
+          <Text style={s.primaryBtnText}>{saving ? 'Saving…' : isNew ? 'Save section' : 'Save changes'}</Text>
         </Pressable>
         <Pressable style={s.secondaryBtn} onPress={cancelForm}>
           <Text style={s.secondaryBtnText}>Cancel</Text>
@@ -215,14 +271,10 @@ const SectionsScreen = ({ route }) => {
     );
   }
 
-  // ---------- DETAILS ----------
-
   if (selected) {
     const uses = usageOf(selected.id);
     const courseIds = [...new Set(uses.map((t) => t.courseId))];
-    const schedule = [...uses].sort(
-      (a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.start.localeCompare(b.start),
-    );
+    const schedule = [...uses].sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.start.localeCompare(b.start));
 
     return (
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -252,15 +304,13 @@ const SectionsScreen = ({ route }) => {
           courseIds.map((id) => (
             <View key={id} style={s.rowCard}>
               <View style={s.codeTile}>
-                <Text style={s.codeTileText}>{courseOf(id)?.code}</Text>
+                <Text style={s.codeTileText}>{courses.find((co) => co.id === id)?.code}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.rowTitle} numberOfLines={1}>
-                  {courseOf(id)?.name}
+                  {courseName(id)}
                 </Text>
-                <Text style={s.rowMeta}>
-                  {uses.filter((t) => t.courseId === id).length} class(es) per week
-                </Text>
+                <Text style={s.rowMeta}>{uses.filter((t) => t.courseId === id).length} class(es) per week</Text>
               </View>
             </View>
           ))
@@ -279,7 +329,7 @@ const SectionsScreen = ({ route }) => {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.rowTitle} numberOfLines={1}>
-                  {courseOf(t.courseId)?.name}
+                  {courseName(t.courseId)}
                 </Text>
                 <Text style={s.rowMeta} numberOfLines={1}>
                   {t.start} · {t.durationMins} min · Room {roomName(t.roomId)} · {facultyName(t.facultyId)}
@@ -305,8 +355,6 @@ const SectionsScreen = ({ route }) => {
     );
   }
 
-  // ---------- LIST ----------
-
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={s.headerRow}>
@@ -320,6 +368,14 @@ const SectionsScreen = ({ route }) => {
           </Pressable>
         ) : null}
       </View>
+
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not load sections</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
 
       {!access.canChooseDept ? (
         <View style={s.scopeBanner}>
@@ -343,7 +399,7 @@ const SectionsScreen = ({ route }) => {
 
       {access.canChooseDept ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow} keyboardShouldPersistTaps="handled">
-          {[{ id: 'all', name: 'All departments' }, ...DEPARTMENTS].map((d) => {
+          {[{ id: 'all', name: 'All departments' }, ...departments].map((d) => {
             const active = deptFilter === d.id;
             return (
               <Pressable key={d.id} onPress={() => setDeptFilter(d.id)} style={[s.chip, active && s.chipActive]}>
@@ -413,7 +469,7 @@ const Field = ({ s, label, error, children }) => (
   <View style={s.field}>
     <Text style={s.fieldLabel}>{label}</Text>
     {children}
-    {error ? <Text style={s.errorText}>{error}</Text> : null}
+    {error ? <Text style={s.errorTextField}>{error}</Text> : null}
   </View>
 );
 
@@ -422,12 +478,20 @@ export default SectionsScreen;
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3 },
     headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
     addBtn: { backgroundColor: c.primary, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 11, ...shadow },
     addBtnText: { color: c.white, fontSize: 13, fontWeight: '800' },
+
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginBottom: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    errorTextField: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
 
     scopeBanner: { backgroundColor: c.primarySoft, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 14 },
     scopeTitle: { fontSize: 13, fontWeight: '800', color: c.primary },
@@ -492,12 +556,11 @@ const makeStyles = (c, shadow) =>
     field: { marginBottom: 18 },
     fieldLabel: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
     input: { backgroundColor: c.surface, borderRadius: 16, paddingHorizontal: 14, height: 50, color: c.text, fontSize: 14, borderWidth: 1, borderColor: c.border },
-    errorText: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
     lockedBox: { backgroundColor: c.primarySoft, borderRadius: 16, padding: 14 },
     lockedText: { fontSize: 14, fontWeight: '800', color: c.primary },
     lockedHint: { fontSize: 11, color: c.muted, marginTop: 4 },
 
-    title2: { display: 'none' },
+    chipWrapSpacer: {},
     primaryBtn: { backgroundColor: c.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginTop: 6, ...shadow },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
     secondaryBtn: { backgroundColor: c.pinkSoft, borderRadius: 18, paddingVertical: 15, alignItems: 'center', marginTop: 10 },
