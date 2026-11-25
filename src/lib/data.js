@@ -181,3 +181,24 @@ export const deleteRoom = async (id) => {
   const { error } = await supabase.from('rooms').delete().eq('id', id);
   if (error) throw new Error(error.message);
 };
+
+// AVAILABILITY (only "Off" slots are stored; no row means Free)
+export const fetchUnavailableSlots = async () =>
+  unwrap(supabase.from('availability').select('faculty_id, day, start_hour'));
+
+export const setSlotOff = async ({ facultyId, day, startHour, off }) => {
+  if (off) {
+    const { error } = await supabase
+      .from('availability')
+      .upsert({ faculty_id: facultyId, day, start_hour: startHour }, { onConflict: 'faculty_id,day,start_hour' });
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase
+      .from('availability')
+      .delete()
+      .eq('faculty_id', facultyId)
+      .eq('day', day)
+      .eq('start_hour', startHour);
+    if (error) throw new Error(error.message);
+  }
+};

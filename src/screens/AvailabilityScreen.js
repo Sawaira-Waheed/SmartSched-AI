@@ -1,20 +1,19 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
-import { DAYS, FACULTY, DEPARTMENTS, TIMETABLE, COURSES } from '../data/sampleData';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { DAYS } from '../data/sampleData';
 import { useTheme } from '../theme/theme';
 import { getAccess, inScope, ROLE } from '../utils/permissions';
-import { Chip, StatsRow, StatTile, ScopeBanner } from '../components/ui';
+import { supabase } from '../lib/supabase';
+import { fetchFaculty, fetchDepartments, fetchTimetable, fetchUnavailableSlots, setSlotOff } from '../lib/data';
+import { Chip, StatsRow, StatTile, ScopeBanner, EmptyCard } from '../components/ui';
 
-// DEMO: the faculty member signed in. Replace with the real login.
-const MY_FACULTY_ID = 'f2';
-
-// Five 2-hour blocks across the teaching day
+// Five 2-hour blocks across the teaching day, by start hour
 const BANDS = [
-  { key: '08', label: '08:00', start: 8, end: 10 },
-  { key: '10', label: '10:00', start: 10, end: 12 },
-  { key: '12', label: '12:00', start: 12, end: 14 },
-  { key: '14', label: '14:00', start: 14, end: 16 },
-  { key: '16', label: '16:00', start: 16, end: 18 },
+  { hour: 8, label: '08:00' },
+  { hour: 10, label: '10:00' },
+  { hour: 12, label: '12:00' },
+  { hour: 14, label: '14:00' },
+  { hour: 16, label: '16:00' },
 ];
 
 const STATUS = {
@@ -28,24 +27,22 @@ const toHours = (t) => {
   return h + m / 60;
 };
 
-// True if a timetable class falls inside a block on a given day
+// True if a timetable class falls inside a 2-hour block on a given day
 const overlaps = (t, day, band) => {
   if (t.day !== day) return false;
   const start = toHours(t.start);
   const end = start + t.durationMins / 60;
-  return start < band.end && end > band.start;
+  return start < band.hour + 2 && end > band.hour;
 };
 
-const cellKey = (facultyId, day, band) => `${facultyId}|${day}|${band.key}`;
-
-const deptName = (id) => DEPARTMENTS.find((d) => d.id === id)?.name || '';
+const keyOf = (facultyId, day, hour) => `${facultyId}|${day}|${hour}`;
 
 // Registrar: anyone. HOD: teachers in their department. Faculty: only themselves.
-const canSetFor = (access, faculty) => {
-  if (!faculty) return false;
+const canSetFor = (access, teacher, myFacultyId) => {
+  if (!teacher) return false;
   if (access.role === ROLE.REGISTRAR) return true;
-  if (access.role === ROLE.HOD) return inScope(access, faculty);
-  return faculty.id === MY_FACULTY_ID;
+  if (access.role === ROLE.HOD) return inScope(access, teacher);
+  return teacher.id === myFacultyId;
 };
 
 const AvailabilityScreen = ({ route }) => {
@@ -54,22 +51,57 @@ const AvailabilityScreen = ({ route }) => {
   const access = getAccess(route?.params);
   const isFaculty = access.role === ROLE.FACULTY;
 
-  const teachers = isFaculty
-    ? FACULTY.filter((f) => f.id === MY_FACULTY_ID)
-    : FACULTY.filter((f) => inScope(access, f));
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [faculty, setFaculty] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [offSet, setOffSet] = useState(() => new Set());
+  const [pending, setPending] = useState(() => new Set());
+  const [myFacultyId, setMyFacultyId] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
 
-  const [selectedId, setSelectedId] = useState(teachers[0]?.id);
-  const [offSlots, setOffSlots] = useState({});
+  const load = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [fa, de, tt, off, auth] = await Promise.all([
+        fetchFaculty(),
+        fetchDepartments(),
+        fetchTimetable(),
+        fetchUnavailableSlots(),
+        supabase.auth.getUser(),
+      ]);
+      const email = auth?.data?.user?.email?.toLowerCase();
+      setFaculty(fa);
+      setDepartments(de);
+      setEntries(tt);
+      setOffSet(new Set(off.map((r) => keyOf(r.faculty_id, r.day, r.start_hour))));
+      setMyFacultyId(fa.find((f) => f.email?.toLowerCase() === email)?.id || null);
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
+    load();
+  }, []);
+
+  const teachers = faculty.filter((f) => (isFaculty ? f.id === myFacultyId : inScope(access, f)));
   const teacher = teachers.find((f) => f.id === selectedId) || teachers[0] || null;
-  const editable = canSetFor(access, teacher);
+  const editable = canSetFor(access, teacher, myFacultyId);
 
-  const classesFor = (fid) => TIMETABLE.filter((t) => t.facultyId === fid);
+  const deptName = (id) => departments.find((d) => d.id === id)?.name || '';
+
+  const bookedBy = (fid, day, band) =>
+    entries.some((t) => t.facultyId === fid && overlaps(t, day, band));
 
   const statusOf = (day, band) => {
     if (!teacher) return 'available';
-    if (classesFor(teacher.id).some((t) => overlaps(t, day, band))) return 'scheduled';
-    return offSlots[cellKey(teacher.id, day, band)] ? 'unavailable' : 'available';
+    if (bookedBy(teacher.id, day, band)) return 'scheduled';
+    return offSet.has(keyOf(teacher.id, day, band.hour)) ? 'unavailable' : 'available';
   };
 
   const counts = { scheduled: 0, available: 0, unavailable: 0 };
@@ -77,52 +109,102 @@ const AvailabilityScreen = ({ route }) => {
     counts[statusOf(d, b)] += 1;
   }));
 
-  const onCellPress = (day, band) => {
+  // Saves the change right away. If the save fails, the grid goes back to the saved state.
+  const toggle = async (day, band) => {
     if (!teacher || !editable) return;
-    const status = statusOf(day, band);
+    const k = keyOf(teacher.id, day, band.hour);
+    if (pending.has(k)) return;
 
-    if (status === 'scheduled') {
-      const cls = classesFor(teacher.id).find((t) => overlaps(t, day, band));
-      const course = COURSES.find((co) => co.id === cls?.courseId);
-      Alert.alert('Booked', `${course?.name || 'A class'} is scheduled here. Change it from the Timetable.`);
-      return;
-    }
+    const nowOff = !offSet.has(k);
 
-    const k = cellKey(teacher.id, day, band);
-    setOffSlots((prev) => {
-      const next = { ...prev };
-      if (next[k]) delete next[k];
-      else next[k] = true;
+    setOffSet((prev) => {
+      const next = new Set(prev);
+      if (nowOff) next.add(k);
+      else next.delete(k);
       return next;
     });
+    setPending((prev) => new Set(prev).add(k));
+
+    try {
+      await setSlotOff({ facultyId: teacher.id, day, startHour: band.hour, off: nowOff });
+    } catch (e) {
+      setOffSet((prev) => {
+        const next = new Set(prev);
+        if (nowOff) next.delete(k);
+        else next.add(k);
+        return next;
+      });
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(k);
+        return next;
+      });
+    }
   };
+
+  const onCellPress = (day, band) => {
+    if (!teacher) return;
+    if (bookedBy(teacher.id, day, band)) {
+      Alert.alert('Booked', 'A class is scheduled here. Change it from the Timetable.');
+      return;
+    }
+    if (!editable) return;
+    toggle(day, band);
+  };
+
+  if (loading && faculty.length === 0) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Loading availability…</Text>
+      </View>
+    );
+  }
 
   if (!teacher) {
     return (
-      <View style={s.scroll}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
         <Text style={s.title}>Availability</Text>
-        <Text style={s.subtitle}>No teachers in your department yet.</Text>
-      </View>
+        <Text style={s.subtitle}>{isFaculty ? 'Your availability' : 'Weekly availability by teacher'}</Text>
+        <View style={{ height: 16 }} />
+        <EmptyCard
+          text={
+            isFaculty
+              ? 'Your login email does not match a teacher record yet. Ask the HOD to add your university email.'
+              : 'No teachers in your scope yet.'
+          }
+        />
+      </ScrollView>
     );
   }
 
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
       <Text style={s.title}>Availability</Text>
-      <Text style={s.subtitle}>
-        {isFaculty ? 'Mark when you are free or off' : 'Weekly availability by teacher'}
-      </Text>
+      <Text style={s.subtitle}>{isFaculty ? 'Mark when you are free or off' : 'Weekly availability by teacher'}</Text>
+
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not load availability</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
 
       <View style={{ height: 16 }} />
 
-      <ScopeBanner
-        title={isFaculty ? 'Your availability' : access.canChooseDept ? '' : deptName(access.departmentId)}
-        text={
-          isFaculty
-            ? 'Tap a free or off block to change it. Booked blocks come from your timetable.'
-            : 'You can update teachers in this department.'
-        }
-      />
+      {!isFaculty && access.canChooseDept ? null : (
+        <ScopeBanner
+          title={deptName(teacher.departmentId)}
+          text={
+            isFaculty
+              ? 'Tap a free or off block to change it. Booked blocks come from your timetable.'
+              : 'You can update teachers in this department.'
+          }
+        />
+      )}
 
       {!isFaculty ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
@@ -155,17 +237,23 @@ const AvailabilityScreen = ({ route }) => {
         </View>
 
         {BANDS.map((b) => (
-          <View key={b.key} style={s.gridRow}>
+          <View key={b.hour} style={s.gridRow}>
             <Text style={s.timeLabel}>{b.label}</Text>
             {DAYS.map((d) => {
               const st = STATUS[statusOf(d, b)];
+              const busy = pending.has(keyOf(teacher.id, d, b.hour));
               return (
                 <Pressable
                   key={d}
                   onPress={() => onCellPress(d, b)}
-                  style={({ pressed }) => [s.cell, { backgroundColor: c[st.bg] }, pressed && s.cellPressed]}
+                  style={({ pressed }) => [
+                    s.cell,
+                    { backgroundColor: c[st.bg] },
+                    pressed && s.cellPressed,
+                    busy && s.cellBusy,
+                  ]}
                 >
-                  <Text style={[s.cellGlyph, { color: c[st.fg] }]}>{st.glyph}</Text>
+                  <Text style={[s.cellGlyph, { color: c[st.fg] }]}>{busy ? '…' : st.glyph}</Text>
                 </Pressable>
               );
             })}
@@ -183,10 +271,8 @@ const AvailabilityScreen = ({ route }) => {
       </View>
 
       <Text style={s.hint}>
-        {editable ? 'Tap a free or off block to switch it.' : 'View only. You can’t change this teacher’s availability.'}
+        {editable ? 'Tap a free or off block to switch it. Changes are saved right away.' : 'View only. You can’t change this teacher’s availability.'}
       </Text>
-
-      <Text style={s.demoNote}>Sample data · changes stay on this screen until the database is connected</Text>
     </ScrollView>
   );
 };
@@ -196,9 +282,16 @@ export default AvailabilityScreen;
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3 },
     filterRow: { paddingBottom: 12 },
+
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginTop: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
 
     card: { backgroundColor: c.surface, borderRadius: 24, padding: 14, ...shadow },
     gridRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
@@ -207,6 +300,7 @@ const makeStyles = (c, shadow) =>
     timeLabel: { width: 52, fontSize: 10, fontWeight: '700', color: c.muted },
     cell: { flex: 1, height: 52, borderRadius: 14, marginHorizontal: 3, alignItems: 'center', justifyContent: 'center' },
     cellPressed: { opacity: 0.8, transform: [{ scale: 0.95 }] },
+    cellBusy: { opacity: 0.6 },
     cellGlyph: { fontSize: 16, fontWeight: '800' },
 
     legend: { flexDirection: 'row', justifyContent: 'center', marginTop: 16 },
@@ -215,5 +309,4 @@ const makeStyles = (c, shadow) =>
     legendText: { fontSize: 11, color: c.muted, fontWeight: '700' },
 
     hint: { fontSize: 12, color: c.muted, textAlign: 'center', marginTop: 14 },
-    demoNote: { fontSize: 10, color: c.muted, textAlign: 'center', marginTop: 16 },
   });
