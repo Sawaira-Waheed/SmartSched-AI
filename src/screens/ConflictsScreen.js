@@ -1,13 +1,11 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { FACULTY, COURSES, SECTIONS, ROOMS, TIMETABLE } from '../data/sampleData';
-import { findConflicts } from '../utils/conflicts';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { useTheme } from '../theme/theme';
 import { getAccess, inScope, ROLE } from '../utils/permissions';
+import { buildClashes } from '../utils/clashes';
+import { supabase } from '../lib/supabase';
+import { fetchTimetable, fetchCourses, fetchSections, fetchRooms, fetchFaculty } from '../lib/data';
 import { Chip, StatsRow, StatTile, EmptyCard } from '../components/ui';
-
-// DEMO: the faculty member signed in. Replace with the real login.
-const MY_FACULTY_ID = 'f2';
 
 const TYPES = {
   teacher: { label: 'Teacher clash', color: 'red', soft: 'redSoft', glyph: '!', hint: 'One teacher is booked for two classes at once.' },
@@ -15,42 +13,15 @@ const TYPES = {
   room: { label: 'Room clash', color: 'pink', soft: 'pinkSoft', glyph: '▦', hint: 'One room is booked for two classes at once.' },
 };
 
-const courseName = (id) => COURSES.find((co) => co.id === id)?.name || 'Class';
-const sectionOf = (id) => SECTIONS.find((sec) => sec.id === id);
-const sectionName = (id) => sectionOf(id)?.name || '';
-const teacherName = (id) => FACULTY.find((f) => f.id === id)?.name || '';
-const roomName = (id) => ROOMS.find((r) => r.id === id)?.name || '';
-const deptOfEntry = (e) => sectionOf(e.sectionId)?.departmentId;
+const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]));
+const nameOf = (map, id, fallback) => map[id]?.name || fallback;
 
-// Each clash appears once, even though it is found from both classes
-const buildClashes = (entries) => {
-  const seen = new Set();
-  const out = [];
-  entries.forEach((e) => {
-    findConflicts(entries, e, e.id).forEach((cf) => {
-      const other = entries.find((x) => x.id === cf.withId);
-      if (!other) return;
-      const id = `${[e.id, other.id].sort().join('|')}|${cf.type}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-      out.push({ id, type: cf.type, a: e, b: other });
-    });
-  });
-  return out;
-};
-
-const ClassSide = ({ s, label, e }) => (
+const ClassSide = ({ s, label, e, course, section, room, teacher }) => (
   <View style={s.side}>
     <Text style={s.sideLabel}>{label}</Text>
-    <Text style={s.sideTitle} numberOfLines={1}>
-      {courseName(e.courseId)}
-    </Text>
-    <Text style={s.sideMeta} numberOfLines={1}>
-      {e.day} · {e.start} · {sectionName(e.sectionId)}
-    </Text>
-    <Text style={s.sideMeta} numberOfLines={1}>
-      {roomName(e.roomId)} · {teacherName(e.facultyId)}
-    </Text>
+    <Text style={s.sideTitle} numberOfLines={1}>{course}</Text>
+    <Text style={s.sideMeta} numberOfLines={1}>{e.day} · {e.start} · {section}</Text>
+    <Text style={s.sideMeta} numberOfLines={1}>{room} · {teacher}</Text>
   </View>
 );
 
@@ -60,23 +31,80 @@ const ConflictsScreen = ({ route, navigation }) => {
   const access = getAccess(route?.params);
   const isFaculty = access.role === ROLE.FACULTY;
 
-  const allClashes = useMemo(() => buildClashes(TIMETABLE), []);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [entries, setEntries] = useState([]);
+  const [courses, setCourses] = useState({});
+  const [sections, setSections] = useState({});
+  const [rooms, setRooms] = useState({});
+  const [faculty, setFaculty] = useState({});
+  const [myFacultyId, setMyFacultyId] = useState(null);
   const [filter, setFilter] = useState('all');
 
-  // Which clashes this user should see
-  const mine = (cl) => {
-    if (isFaculty) return cl.a.facultyId === MY_FACULTY_ID || cl.b.facultyId === MY_FACULTY_ID;
-    return inScope(access, { departmentId: deptOfEntry(cl.a) }) || inScope(access, { departmentId: deptOfEntry(cl.b) });
+  const load = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [tt, co, se, ro, fa, auth] = await Promise.all([
+        fetchTimetable(),
+        fetchCourses(),
+        fetchSections(),
+        fetchRooms(),
+        fetchFaculty(),
+        supabase.auth.getUser(),
+      ]);
+      const email = auth?.data?.user?.email?.toLowerCase();
+      setEntries(tt);
+      setCourses(byId(co));
+      setSections(byId(se));
+      setRooms(byId(ro));
+      setFaculty(byId(fa));
+      setMyFacultyId(fa.find((f) => f.email?.toLowerCase() === email)?.id || null);
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const visible = allClashes.filter(mine);
+  useEffect(() => {
+    load();
+  }, []);
+
+  const clashes = useMemo(() => buildClashes(entries), [entries]);
+
+  // Faculty: clashes involving their own classes. HOD and Registrar: clashes in their scope.
+  const visible = clashes.filter((cl) => {
+    if (isFaculty) return cl.a.facultyId === myFacultyId || cl.b.facultyId === myFacultyId;
+    const deptA = sections[cl.a.sectionId]?.departmentId;
+    const deptB = sections[cl.b.sectionId]?.departmentId;
+    return inScope(access, { departmentId: deptA }) || inScope(access, { departmentId: deptB });
+  });
+
   const shown = visible.filter((cl) => filter === 'all' || cl.type === filter);
   const countOf = (t) => visible.filter((cl) => cl.type === t).length;
+
+  if (loading && entries.length === 0) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Checking the timetable…</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
       <Text style={s.title}>Conflicts</Text>
-      <Text style={s.subtitle}>Teacher, section and room clashes found by rules</Text>
+      <Text style={s.subtitle}>Teacher, section and room clashes in the live timetable</Text>
+
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not check the timetable</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
 
       <View style={{ height: 16 }} />
 
@@ -102,7 +130,7 @@ const ConflictsScreen = ({ route, navigation }) => {
         shown.map((cl) => {
           const t = TYPES[cl.type];
           return (
-            <View key={cl.id} style={s.card}>
+            <View key={cl.key} style={s.card}>
               <View style={s.cardTop}>
                 <View style={[s.typeIcon, { backgroundColor: c[t.soft] }]}>
                   <Text style={[s.typeGlyph, { color: c[t.color] }]}>{t.glyph}</Text>
@@ -114,9 +142,25 @@ const ConflictsScreen = ({ route, navigation }) => {
               </View>
 
               <View style={s.sides}>
-                <ClassSide s={s} label="CLASS A" e={cl.a} />
+                <ClassSide
+                  s={s}
+                  label="CLASS A"
+                  e={cl.a}
+                  course={nameOf(courses, cl.a.courseId, 'Class')}
+                  section={nameOf(sections, cl.a.sectionId, 'Section')}
+                  room={nameOf(rooms, cl.a.roomId, 'Room')}
+                  teacher={nameOf(faculty, cl.a.facultyId, 'Teacher')}
+                />
                 <View style={{ width: 8 }} />
-                <ClassSide s={s} label="CLASS B" e={cl.b} />
+                <ClassSide
+                  s={s}
+                  label="CLASS B"
+                  e={cl.b}
+                  course={nameOf(courses, cl.b.courseId, 'Class')}
+                  section={nameOf(sections, cl.b.sectionId, 'Section')}
+                  room={nameOf(rooms, cl.b.roomId, 'Room')}
+                  teacher={nameOf(faculty, cl.b.facultyId, 'Teacher')}
+                />
               </View>
 
               {access.canEdit ? (
@@ -134,7 +178,10 @@ const ConflictsScreen = ({ route, navigation }) => {
         })
       )}
 
-      <Text style={s.demoNote}>Sample data · clashes are checked by rules, not by AI</Text>
+      <Text style={s.note}>
+        The database blocks new clashes when a class is saved, so this list should stay empty. Anything listed here came
+        from data added outside the app.
+      </Text>
     </ScrollView>
   );
 };
@@ -144,9 +191,17 @@ export default ConflictsScreen;
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3 },
+
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginTop: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
+
     filterRow: { paddingBottom: 14 },
 
     card: { backgroundColor: c.surface, borderRadius: 22, padding: 16, marginBottom: 14, ...shadow },
@@ -166,5 +221,5 @@ const makeStyles = (c, shadow) =>
     fixText: { color: c.white, fontSize: 13, fontWeight: '800' },
     viewOnly: { fontSize: 12, color: c.muted, textAlign: 'center', marginTop: 14 },
 
-    demoNote: { fontSize: 10, color: c.muted, textAlign: 'center', marginTop: 16 },
+    note: { fontSize: 10, color: c.muted, textAlign: 'center', marginTop: 16, lineHeight: 15 },
   });

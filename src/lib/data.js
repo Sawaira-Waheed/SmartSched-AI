@@ -202,3 +202,29 @@ export const setSlotOff = async ({ facultyId, day, startHour, off }) => {
     if (error) throw new Error(error.message);
   }
 };
+
+// NOTIFICATIONS
+export const fetchNotifications = async () =>
+  unwrap(supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100));
+
+export const fetchNotificationReads = async () => {
+  const auth = await supabase.auth.getUser();
+  const user = auth.data.user;
+  if (!user) return [];
+  return unwrap(supabase.from('notification_reads').select('notification_id').eq('user_id', user.id));
+};
+
+export const markNotificationsRead = async (ids) => {
+  const auth = await supabase.auth.getUser();
+  const user = auth.data.user;
+  if (!user || ids.length === 0) return;
+  const rows = ids.map((id) => ({ user_id: user.id, notification_id: id }));
+  const { error } = await supabase
+    .from('notification_reads')
+    .upsert(rows, { onConflict: 'user_id,notification_id' });
+  if (error) throw new Error(error.message);
+};
+
+// AUDIT
+export const fetchAuditLogs = async () =>
+  unwrap(supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200));
