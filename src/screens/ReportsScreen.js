@@ -1,9 +1,17 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '../theme/theme';
 import { getAccess, ROLE } from '../utils/permissions';
 import { buildReport, WEEK_HOURS } from '../utils/reportData';
 import { buildTables, exportReport } from '../utils/exporter';
+import {
+  fetchFaculty,
+  fetchRooms,
+  fetchDepartments,
+  fetchCourses,
+  fetchSections,
+  fetchTimetable,
+} from '../lib/data';
 import { StatsRow, StatTile, EmptyCard } from '../components/ui';
 
 const EXPORTS = [
@@ -20,10 +28,39 @@ const ReportsScreen = ({ route }) => {
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
   const access = getAccess(route?.params);
   const canView = access.role === ROLE.REGISTRAR || access.role === ROLE.HOD;
+  const isRegistrar = access.role === ROLE.REGISTRAR;
 
-  // Recalculate only when the user's scope changes
-  const report = useMemo(() => buildReport(access), [access.scoped, access.departmentId]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [data, setData] = useState(null);
   const [busy, setBusy] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [fa, ro, de, co, se, tt] = await Promise.all([
+        fetchFaculty(),
+        fetchRooms(),
+        fetchDepartments(),
+        fetchCourses(),
+        fetchSections(),
+        fetchTimetable(),
+      ]);
+      setData({ faculty: fa, rooms: ro, departments: de, courses: co, sections: se, timetable: tt });
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (canView) load();
+    else setLoading(false);
+  }, []);
+
+  const report = useMemo(() => (data ? buildReport(access, data) : null), [data, access.scoped, access.departmentId]);
 
   if (!canView) {
     return (
@@ -36,22 +73,38 @@ const ReportsScreen = ({ route }) => {
     );
   }
 
-  const isRegistrar = access.role === ROLE.REGISTRAR;
-  const meta = `Generated ${new Date().toLocaleString()} · ${report.scopeName}`;
+  if (loading && !data) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Building reports…</Text>
+      </View>
+    );
+  }
+
+  if (!report) {
+    return (
+      <ScrollView contentContainerStyle={s.scroll}>
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not load reports</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
   const maxDept = Math.max(...report.departments.map((d) => d.classes), 1);
   const maxDay = Math.max(...report.perDay.map((d) => d.classes), 1);
-  const maxTrend = Math.max(...report.trend.map((t) => t.teacher + t.section + t.room), 1);
+  const maxClash = Math.max(...Object.values(report.clashCounts), 1);
 
   const runExport = async (format) => {
     if (busy) return;
     setBusy(format);
     try {
-      await exportReport(format, buildTables(report), meta);
+      await exportReport(format, buildTables(report));
     } catch (e) {
-      Alert.alert(
-        'Export failed',
-        `${e?.message || 'Unknown error'}\n\nIf this is the first export, rebuild the app after installing the report packages.`,
-      );
+      Alert.alert('Export failed', e?.message || 'Unknown error');
     } finally {
       setBusy('');
     }
@@ -63,8 +116,16 @@ const ReportsScreen = ({ route }) => {
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
       <Text style={s.title}>Reports</Text>
       <Text style={s.subtitle}>
-        {isRegistrar ? 'Institution-wide analytics' : `${report.scopeName} · department analytics`}
+        {isRegistrar ? 'Institution-wide analytics · live' : `${report.scopeName} · department analytics · live`}
       </Text>
+
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={load}>
+          <Text style={s.errorTitle}>Could not refresh reports</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
 
       <View style={{ height: 16 }} />
 
@@ -79,11 +140,10 @@ const ReportsScreen = ({ route }) => {
         <StatTile value={k.clashes} label="Clashes" color={k.clashes ? c.red : c.mint} />
       </StatsRow>
 
-      {/* FACULTY WORKLOAD */}
       <Text style={s.section}>FACULTY WORKLOAD</Text>
       <View style={s.card}>
         {report.faculty.length === 0 ? (
-          <Text style={s.empty}>No teachers in this department yet.</Text>
+          <Text style={s.empty}>No teachers in scope yet.</Text>
         ) : (
           report.faculty.map((f) => (
             <BarRow
@@ -98,11 +158,10 @@ const ReportsScreen = ({ route }) => {
         )}
       </View>
 
-      {/* ROOM UTILIZATION */}
       <Text style={s.section}>ROOM UTILIZATION</Text>
       <View style={s.card}>
         {report.rooms.length === 0 ? (
-          <Text style={s.empty}>No rooms in this department yet.</Text>
+          <Text style={s.empty}>No rooms in scope yet.</Text>
         ) : (
           report.rooms.map((r) => (
             <BarRow
@@ -117,7 +176,6 @@ const ReportsScreen = ({ route }) => {
         )}
       </View>
 
-      {/* DEPARTMENTS */}
       <Text style={s.section}>{isRegistrar ? 'DEPARTMENT SCHEDULE' : 'DEPARTMENT OVERVIEW'}</Text>
       <View style={s.card}>
         {report.departments.map((d) => (
@@ -138,7 +196,6 @@ const ReportsScreen = ({ route }) => {
         ))}
       </View>
 
-      {/* CLASSES PER DAY */}
       <Text style={s.section}>CLASSES PER DAY</Text>
       <View style={s.card}>
         <View style={s.colWrap}>
@@ -154,36 +211,24 @@ const ReportsScreen = ({ route }) => {
         </View>
       </View>
 
-      {/* CONFLICT TRENDS */}
-      <Text style={s.section}>CONFLICT TRENDS</Text>
+      <Text style={s.section}>CLASHES BY TYPE</Text>
       <View style={s.card}>
-        <View style={s.legend}>
-          {Object.keys(CLASH_COLOR).map((t) => (
-            <View key={t} style={s.legendItem}>
-              <View style={[s.legendDot, { backgroundColor: c[CLASH_COLOR[t]] }]} />
-              <Text style={s.legendText}>{CLASH_LABEL[t]}</Text>
-            </View>
-          ))}
-        </View>
-
-        {report.trend.map((t) => {
-          const total = t.teacher + t.section + t.room;
+        {Object.keys(CLASH_COLOR).map((t) => {
+          const count = report.clashCounts[t];
           return (
-            <View key={t.label} style={s.trendRow}>
-              <Text style={s.trendLabel}>{t.label}</Text>
-              <View style={s.trendBar}>
-                {['teacher', 'section', 'room'].map((k2) =>
-                  t[k2] > 0 ? <View key={k2} style={{ flex: t[k2], backgroundColor: c[CLASH_COLOR[k2]] }} /> : null,
-                )}
-                <View style={{ flex: Math.max(maxTrend - total, 0) }} />
-              </View>
-              <Text style={s.trendTotal}>{total}</Text>
-            </View>
+            <BarRow
+              key={t}
+              s={s}
+              label={`${CLASH_LABEL[t]} clashes`}
+              sub={count ? `${count} found in the live timetable` : 'None found'}
+              percent={(count / maxClash) * 100}
+              valueText={String(count)}
+              color={c[CLASH_COLOR[t]]}
+            />
           );
         })}
       </View>
 
-      {/* EXPORT */}
       <Text style={s.section}>EXPORT</Text>
       <View style={s.card}>
         {EXPORTS.map((x, i) => {
@@ -192,7 +237,11 @@ const ReportsScreen = ({ route }) => {
             <Pressable
               key={x.key}
               onPress={() => runExport(x.key)}
-              style={({ pressed }) => [s.exportRow, i === EXPORTS.length - 1 && { borderBottomWidth: 0 }, pressed && s.pressed]}
+              style={({ pressed }) => [
+                s.exportRow,
+                i === EXPORTS.length - 1 && { borderBottomWidth: 0 },
+                pressed && s.pressed,
+              ]}
             >
               <View style={[s.exportBubble, { backgroundColor: c[`${x.color}Soft`] }]}>
                 <Text style={[s.exportGlyph, { color: c[x.color] }]}>{x.glyph}</Text>
@@ -210,19 +259,19 @@ const ReportsScreen = ({ route }) => {
       <Text style={s.note}>
         {isRegistrar
           ? 'Files open in the Android share sheet. Choose Drive, WhatsApp, or Files to save them.'
-          : `Exports contain ${report.scopeName} data only. Files open in the Android share sheet.`}
+          : `Exports contain ${report.scopeName} data only.`}
       </Text>
     </ScrollView>
   );
 };
 
-const BarRow = ({ s, label, sub, percent, color }) => (
+const BarRow = ({ s, label, sub, percent, color, valueText }) => (
   <View style={s.barRow}>
     <View style={s.barHead}>
       <Text style={s.barLabel} numberOfLines={1}>
         {label}
       </Text>
-      <Text style={[s.barValue, { color }]}>{Math.round(percent)}%</Text>
+      <Text style={[s.barValue, { color }]}>{valueText ?? `${Math.round(percent)}%`}</Text>
     </View>
     <View style={s.track}>
       <View style={[s.fill, { width: `${Math.min(percent, 100)}%`, backgroundColor: color }]} />
@@ -238,9 +287,16 @@ export default ReportsScreen;
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     pressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3 },
+
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginTop: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
 
     section: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 22, marginBottom: 10 },
     card: { backgroundColor: c.surface, borderRadius: 22, padding: 18, ...shadow },
@@ -273,23 +329,7 @@ const makeStyles = (c, shadow) =>
     colFill: { width: '100%', borderRadius: 11 },
     colDay: { fontSize: 10, fontWeight: '800', color: c.muted, marginTop: 8 },
 
-    legend: { flexDirection: 'row', marginBottom: 14 },
-    legendItem: { flexDirection: 'row', alignItems: 'center', marginRight: 14 },
-    legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-    legendText: { fontSize: 11, color: c.muted, fontWeight: '700' },
-
-    trendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-    trendLabel: { width: 44, fontSize: 11, fontWeight: '800', color: c.text },
-    trendBar: { flex: 1, height: 14, borderRadius: 7, backgroundColor: c.surfaceAlt, flexDirection: 'row', overflow: 'hidden' },
-    trendTotal: { width: 26, textAlign: 'right', fontSize: 11, fontWeight: '800', color: c.text },
-
-    exportRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-    },
+    exportRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border },
     exportBubble: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     exportGlyph: { fontSize: 17, fontWeight: '800' },
     exportTitle: { fontSize: 14, fontWeight: '800', color: c.text },
