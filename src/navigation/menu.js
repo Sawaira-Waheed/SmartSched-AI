@@ -14,6 +14,7 @@ const ADMIN = [REGISTRAR, HOD];
 export const MENU = [
   { key: 'dashboard', label: 'Dashboard', glyph: '◉', roles: EVERYONE },
   { key: 'timetable', label: 'Timetable', glyph: '▦', roles: EVERYONE },
+  { key: 'calendar', label: 'Calendar', glyph: '◫', roles: EVERYONE },
   { key: 'faculty', label: 'Faculty', glyph: '◎', roles: ADMIN },
   { key: 'availability', label: 'Availability', glyph: '◷', roles: EVERYONE },
   { key: 'courses', label: 'Courses', glyph: '▤', roles: ADMIN },

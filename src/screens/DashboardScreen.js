@@ -146,7 +146,7 @@ const ACTIONS_BY_ROLE = {
   faculty: [
     { label: 'My Timetable', sub: 'Your weekly classes', glyph: '▦', colorKey: 'primary', screen: 'timetable' },
     { label: 'Availability', sub: 'Update free slots', glyph: '◷', colorKey: 'mint', screen: 'availability' },
-    { label: 'Calendar', sub: 'Dates and events', glyph: '◫', colorKey: 'sky', screen: null },
+    { label: 'Calendar', sub: 'Dates and events', glyph: '◫', colorKey: 'sky', screen: 'calendar' },
     { label: 'Profile', sub: 'Account and settings', glyph: '◉', colorKey: 'amber', screen: 'profile' },
   ],
 };

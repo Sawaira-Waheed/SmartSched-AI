@@ -18,6 +18,7 @@ import RoomsScreen from './screens/RoomsScreen';
 import AvailabilityScreen from './screens/AvailabilityScreen';
 import ConflictsScreen from './screens/ConflictsScreen';
 import AiSchedulingScreen from './screens/AiSchedulingScreen';
+import CalendarScreen from './screens/CalendarScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import ReportsScreen from './screens/ReportsScreen';
 import AuditLogsScreen from './screens/AuditLogsScreen';
@@ -44,6 +45,7 @@ const AUTH_SCREENS = {
 const APP_SCREENS = {
   dashboard: DashboardScreen,
   timetable: TimetableScreen,
+  calendar: CalendarScreen,
   faculty: FacultyScreen,
   availability: AvailabilityScreen,
   courses: CoursesScreen,
