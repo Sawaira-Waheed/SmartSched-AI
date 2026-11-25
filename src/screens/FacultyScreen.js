@@ -1,18 +1,20 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert } from 'react-native';
-import { FACULTY, DEPARTMENTS, TIMETABLE } from '../data/sampleData';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { DEPARTMENTS, TIMETABLE, COURSES, SECTIONS } from '../data/sampleData';
 import { useTheme } from '../theme/theme';
 import { getAccess, inScope } from '../utils/permissions';
+import { fetchFaculty, saveFaculty, deleteFaculty } from '../lib/data';
 
 const EMPTY_FORM = { name: '', email: '', departmentId: '', maxHoursPerWeek: '' };
 
-const classesOf = (facultyId) => TIMETABLE.filter((t) => t.facultyId === facultyId);
+const COURSES_BY_ID = Object.fromEntries(COURSES.map((co) => [co.id, co.name]));
+const SECTIONS_BY_ID = Object.fromEntries(SECTIONS.map((sec) => [sec.id, sec.name]));
 
-const weeklyHours = (facultyId) =>
-  classesOf(facultyId).reduce((sum, t) => sum + t.durationMins, 0) / 60;
+// Until the timetable is read from the database, class hours come from sample data.
+const classesOf = (facultyId) => TIMETABLE.filter((t) => t.facultyId === facultyId);
+const weeklyHours = (facultyId) => classesOf(facultyId).reduce((sum, t) => sum + t.durationMins, 0) / 60;
 
 const deptName = (id) => DEPARTMENTS.find((d) => d.id === id)?.name || 'Unassigned';
-
 const initialOf = (name) => name.replace(/^(Dr\.|Ms\.|Mr\.|Prof\.)\s*/, '').charAt(0).toUpperCase();
 
 const loadTone = (hours, max, c) => {
@@ -28,14 +30,33 @@ const FacultyScreen = ({ route }) => {
   const s = useMemo(() => makeStyles(c, shadow), [c, shadow]);
   const access = getAccess(route?.params);
 
-  const [list, setList] = useState(FACULTY);
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [query, setQuery] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
-  const [editing, setEditing] = useState(null); // null, or { id: string|null, values: {...} }
+  const [editing, setEditing] = useState(null);
   const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
 
-  // Only the teachers this user is allowed to see
+  const reload = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      setList(await fetchFaculty());
+    } catch (e) {
+      setLoadError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  // Extra check on the client. The database already limits the rows it returns.
   const scoped = list.filter((f) => inScope(access, f));
 
   const q = query.trim().toLowerCase();
@@ -48,8 +69,6 @@ const FacultyScreen = ({ route }) => {
   const selected = scoped.find((f) => f.id === selectedId);
   const overloaded = scoped.filter((f) => weeklyHours(f.id) > f.maxHoursPerWeek).length;
   const totalClasses = scoped.reduce((sum, f) => sum + classesOf(f.id).length, 0);
-
-  // ---------- ACTIONS ----------
 
   const openAdd = () => {
     if (!access.canEdit) return;
@@ -93,26 +112,29 @@ const FacultyScreen = ({ route }) => {
     return e;
   };
 
-  const saveForm = () => {
-    if (!access.canEdit) return;
+  const saveForm = async () => {
+    if (!access.canEdit || saving) return;
     const found = validate(editing.values);
     setErrors(found);
     if (Object.keys(found).length) return;
 
-    const record = {
-      name: editing.values.name.trim(),
-      email: editing.values.email.trim(),
-      departmentId: editing.values.departmentId,
-      maxHoursPerWeek: Number(editing.values.maxHoursPerWeek),
-    };
-
-    if (editing.id) {
-      setList((prev) => prev.map((f) => (f.id === editing.id ? { ...f, ...record } : f)));
-    } else {
-      setList((prev) => [...prev, { id: `f${Date.now()}`, ...record }]);
+    setSaving(true);
+    try {
+      await saveFaculty({
+        id: editing.id,
+        name: editing.values.name.trim(),
+        email: editing.values.email.trim(),
+        departmentId: editing.values.departmentId,
+        maxHoursPerWeek: Number(editing.values.maxHoursPerWeek),
+      });
+      setEditing(null);
+      setErrors({});
+      await reload();
+    } catch (e) {
+      Alert.alert('Could not save', e.message);
+    } finally {
+      setSaving(false);
     }
-    setErrors({});
-    setEditing(null);
   };
 
   const confirmDelete = (faculty) => {
@@ -122,9 +144,7 @@ const FacultyScreen = ({ route }) => {
     if (assigned > 0) {
       Alert.alert(
         'Cannot delete yet',
-        `${faculty.name} teaches ${assigned} class${assigned > 1 ? 'es' : ''}. Reassign ${
-          assigned > 1 ? 'them' : 'it'
-        } in Timetable first.`,
+        `${faculty.name} teaches ${assigned} class${assigned > 1 ? 'es' : ''}. Reassign ${assigned > 1 ? 'them' : 'it'} in Timetable first.`,
       );
       return;
     }
@@ -134,15 +154,27 @@ const FacultyScreen = ({ route }) => {
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => {
-          setList((prev) => prev.filter((f) => f.id !== faculty.id));
-          setSelectedId(null);
+        onPress: async () => {
+          try {
+            await deleteFaculty(faculty.id);
+            setSelectedId(null);
+            await reload();
+          } catch (e) {
+            Alert.alert('Could not delete', e.message);
+          }
         },
       },
     ]);
   };
 
-  // ---------- FORM VIEW ----------
+  if (loading && list.length === 0) {
+    return (
+      <View style={s.center}>
+        <ActivityIndicator color={c.primary} />
+        <Text style={s.loadingText}>Loading faculty…</Text>
+      </View>
+    );
+  }
 
   if (editing) {
     const isNew = !editing.id;
@@ -211,8 +243,8 @@ const FacultyScreen = ({ route }) => {
           />
         </Field>
 
-        <Pressable style={s.primaryBtn} onPress={saveForm}>
-          <Text style={s.primaryBtnText}>{isNew ? 'Add faculty' : 'Save changes'}</Text>
+        <Pressable style={[s.primaryBtn, saving && { opacity: 0.6 }]} onPress={saveForm} disabled={saving}>
+          <Text style={s.primaryBtnText}>{saving ? 'Saving…' : isNew ? 'Add faculty' : 'Save changes'}</Text>
         </Pressable>
 
         <Pressable style={s.secondaryBtn} onPress={cancelForm}>
@@ -221,8 +253,6 @@ const FacultyScreen = ({ route }) => {
       </ScrollView>
     );
   }
-
-  // ---------- DETAILS VIEW ----------
 
   if (selected) {
     const hours = weeklyHours(selected.id);
@@ -278,25 +308,21 @@ const FacultyScreen = ({ route }) => {
             <Text style={s.emptyText}>No classes assigned yet.</Text>
           </View>
         ) : (
-          classes.map((t) => {
-            const course = COURSES_BY_ID[t.courseId];
-            const sectionName = SECTIONS_BY_ID[t.sectionId];
-            return (
-              <View key={t.id} style={s.classCard}>
-                <View style={s.dayBadge}>
-                  <Text style={s.dayBadgeText}>{t.day.toUpperCase()}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.classTitle} numberOfLines={1}>
-                    {course || 'Course'}
-                  </Text>
-                  <Text style={s.classMeta} numberOfLines={1}>
-                    {t.start} · {t.durationMins} min · {sectionName} · Room {t.roomId}
-                  </Text>
-                </View>
+          classes.map((t) => (
+            <View key={t.id} style={s.classCard}>
+              <View style={s.dayBadge}>
+                <Text style={s.dayBadgeText}>{t.day.toUpperCase()}</Text>
               </View>
-            );
-          })
+              <View style={{ flex: 1 }}>
+                <Text style={s.classTitle} numberOfLines={1}>
+                  {COURSES_BY_ID[t.courseId] || 'Course'}
+                </Text>
+                <Text style={s.classMeta} numberOfLines={1}>
+                  {t.start} · {t.durationMins} min · {SECTIONS_BY_ID[t.sectionId]} · Room {t.roomId}
+                </Text>
+              </View>
+            </View>
+          ))
         )}
 
         {access.canEdit ? (
@@ -315,8 +341,6 @@ const FacultyScreen = ({ route }) => {
     );
   }
 
-  // ---------- LIST VIEW ----------
-
   return (
     <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <View style={s.headerRow}>
@@ -331,7 +355,15 @@ const FacultyScreen = ({ route }) => {
         ) : null}
       </View>
 
-      {access.canChooseDept ? null : (
+      {loadError ? (
+        <Pressable style={s.errorBox} onPress={reload}>
+          <Text style={s.errorTitle}>Could not load faculty</Text>
+          <Text style={s.errorText}>{loadError}</Text>
+          <Text style={s.retry}>Tap to try again</Text>
+        </Pressable>
+      ) : null}
+
+      {!access.canChooseDept ? (
         <View style={s.scopeBanner}>
           <Text style={s.scopeTitle}>{deptName(access.departmentId)}</Text>
           <Text style={s.scopeText}>
@@ -340,7 +372,7 @@ const FacultyScreen = ({ route }) => {
               : 'View only. Showing teachers in your department.'}
           </Text>
         </View>
-      )}
+      ) : null}
 
       <View style={s.statsRow}>
         <StatTile s={s} value={scoped.length} label="Teachers" color={c.primary} />
@@ -390,7 +422,6 @@ const FacultyScreen = ({ route }) => {
               <View style={s.avatar}>
                 <Text style={s.avatarText}>{initialOf(f.name)}</Text>
               </View>
-
               <View style={{ flex: 1 }}>
                 <View style={s.rowBetween}>
                   <Text style={s.cardName} numberOfLines={1}>
@@ -403,7 +434,6 @@ const FacultyScreen = ({ route }) => {
                 <Text style={s.cardMeta} numberOfLines={1}>
                   {deptName(f.departmentId)}
                 </Text>
-
                 <View style={s.miniTrack}>
                   <View style={[s.miniFill, { width: `${percent}%`, backgroundColor: tone.color }]} />
                 </View>
@@ -432,20 +462,17 @@ const Field = ({ s, label, error, children }) => (
   <View style={s.field}>
     <Text style={s.fieldLabel}>{label}</Text>
     {children}
-    {error ? <Text style={s.errorText}>{error}</Text> : null}
+    {error ? <Text style={s.fieldError}>{error}</Text> : null}
   </View>
 );
 
 export default FacultyScreen;
 
-// Lookups used in the details view
-import { COURSES, SECTIONS } from '../data/sampleData';
-const COURSES_BY_ID = Object.fromEntries(COURSES.map((co) => [co.id, co.name]));
-const SECTIONS_BY_ID = Object.fromEntries(SECTIONS.map((sec) => [sec.id, sec.name]));
-
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
     scroll: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 40 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+    loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
 
@@ -456,38 +483,21 @@ const makeStyles = (c, shadow) =>
     addBtn: { backgroundColor: c.primary, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 11, ...shadow },
     addBtnText: { color: c.white, fontSize: 13, fontWeight: '800' },
 
-    scopeBanner: {
-      backgroundColor: c.primarySoft,
-      borderRadius: 18,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      marginBottom: 14,
-    },
+    errorBox: { backgroundColor: c.redSoft, borderRadius: 18, padding: 14, marginBottom: 14 },
+    errorTitle: { fontSize: 13, fontWeight: '800', color: c.red },
+    errorText: { fontSize: 11, color: c.red, marginTop: 4 },
+    retry: { fontSize: 11, fontWeight: '800', color: c.primary, marginTop: 8 },
+
+    scopeBanner: { backgroundColor: c.primarySoft, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 14 },
     scopeTitle: { fontSize: 13, fontWeight: '800', color: c.primary },
     scopeText: { fontSize: 11, color: c.text, marginTop: 3, lineHeight: 16 },
 
     statsRow: { flexDirection: 'row', marginHorizontal: -5, marginBottom: 16 },
-    statTile: {
-      flex: 1,
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      paddingVertical: 14,
-      alignItems: 'center',
-      marginHorizontal: 5,
-      ...shadow,
-    },
+    statTile: { flex: 1, backgroundColor: c.surface, borderRadius: 18, paddingVertical: 14, alignItems: 'center', marginHorizontal: 5, ...shadow },
     statValue: { fontSize: 22, fontWeight: '800' },
     statLabel: { fontSize: 10, color: c.muted, fontWeight: '700', marginTop: 3 },
 
-    searchBox: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      paddingHorizontal: 14,
-      marginBottom: 12,
-      ...shadow,
-    },
+    searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 18, paddingHorizontal: 14, marginBottom: 12, ...shadow },
     searchIcon: { fontSize: 18, color: c.primary, marginRight: 8 },
     searchInput: { flex: 1, height: 48, color: c.text, fontSize: 14 },
 
@@ -500,19 +510,10 @@ const makeStyles = (c, shadow) =>
 
     card: { backgroundColor: c.surface, borderRadius: 22, padding: 16, marginBottom: 12, ...shadow },
     listCard: { flexDirection: 'row', alignItems: 'center' },
-    avatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 14,
-    },
+    avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: c.primarySoft, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
     avatarText: { color: c.primary, fontSize: 18, fontWeight: '800' },
     cardName: { flex: 1, fontSize: 15, fontWeight: '800', color: c.text, marginRight: 8 },
     cardMeta: { fontSize: 11, color: c.muted, marginTop: 2 },
-    cardTitle: { fontSize: 15, fontWeight: '800', color: c.text },
 
     toneChip: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 },
     toneText: { fontSize: 10, fontWeight: '800' },
@@ -528,15 +529,7 @@ const makeStyles = (c, shadow) =>
     backText: { fontSize: 13, fontWeight: '800', color: c.primary },
 
     profileWrap: { alignItems: 'center', marginBottom: 18 },
-    avatarLg: {
-      width: 84,
-      height: 84,
-      borderRadius: 42,
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 12,
-    },
+    avatarLg: { width: 84, height: 84, borderRadius: 42, backgroundColor: c.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
     avatarLgText: { color: c.primary, fontSize: 32, fontWeight: '800' },
     profileName: { fontSize: 20, fontWeight: '800', color: c.text, maxWidth: '100%' },
     profileMeta: { fontSize: 12, color: c.muted, marginTop: 3, maxWidth: '100%' },
@@ -549,24 +542,8 @@ const makeStyles = (c, shadow) =>
 
     sectionLabel: { fontSize: 11, fontWeight: '800', color: c.muted, letterSpacing: 1.2, marginTop: 14, marginBottom: 10 },
 
-    classCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: c.surface,
-      borderRadius: 18,
-      padding: 12,
-      marginBottom: 10,
-      ...shadow,
-    },
-    dayBadge: {
-      width: 50,
-      height: 50,
-      borderRadius: 14,
-      backgroundColor: c.primarySoft,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 12,
-    },
+    classCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 18, padding: 12, marginBottom: 10, ...shadow },
+    dayBadge: { width: 50, height: 50, borderRadius: 14, backgroundColor: c.primarySoft, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     dayBadgeText: { fontSize: 11, fontWeight: '800', color: c.primary },
     classTitle: { fontSize: 14, fontWeight: '800', color: c.text },
     classMeta: { fontSize: 11, color: c.muted, marginTop: 3 },
@@ -578,30 +555,14 @@ const makeStyles = (c, shadow) =>
 
     field: { marginBottom: 18 },
     fieldLabel: { fontSize: 12, fontWeight: '800', color: c.primary, marginBottom: 8 },
-    input: {
-      backgroundColor: c.surface,
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      height: 50,
-      color: c.text,
-      fontSize: 14,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    errorText: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
+    input: { backgroundColor: c.surface, borderRadius: 16, paddingHorizontal: 14, height: 50, color: c.text, fontSize: 14, borderWidth: 1, borderColor: c.border },
+    fieldError: { fontSize: 11, color: c.red, marginTop: 6, fontWeight: '600' },
 
     lockedBox: { backgroundColor: c.primarySoft, borderRadius: 16, padding: 14 },
     lockedText: { fontSize: 14, fontWeight: '800', color: c.primary },
     lockedHint: { fontSize: 11, color: c.muted, marginTop: 4 },
 
-    primaryBtn: {
-      backgroundColor: c.primary,
-      borderRadius: 18,
-      paddingVertical: 16,
-      alignItems: 'center',
-      marginTop: 6,
-      ...shadow,
-    },
+    primaryBtn: { backgroundColor: c.primary, borderRadius: 18, paddingVertical: 16, alignItems: 'center', marginTop: 6, ...shadow },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
     secondaryBtn: { backgroundColor: c.pinkSoft, borderRadius: 18, paddingVertical: 15, alignItems: 'center', marginTop: 10 },
     secondaryBtnText: { color: c.pink, fontSize: 14, fontWeight: '800' },
