@@ -132,13 +132,13 @@ const DASHBOARD_DATA = {
 // screen: a key registered in App.js, or null if not built yet
 const ACTIONS_BY_ROLE = {
   registrar: [
-    { label: 'Generate', sub: 'Build a new timetable', glyph: '✦', colorKey: 'primary', screen: null },
+    { label: 'Generate', sub: 'Build a new timetable', glyph: '✦', colorKey: 'primary', screen: 'aischeduling' },
     { label: 'Timetable', sub: 'View all departments', glyph: '▦', colorKey: 'sky', screen: 'timetable' },
     { label: 'Faculty', sub: 'Manage staff and load', glyph: '◉', colorKey: 'mint', screen: 'faculty' },
     { label: 'Conflicts', sub: 'Scan for clashes', glyph: '!', colorKey: 'pink', screen: 'conflicts' },
   ],
   hod: [
-    { label: 'Generate', sub: 'Build department timetable', glyph: '✦', colorKey: 'primary', screen: null },
+    { label: 'Generate', sub: 'Build department timetable', glyph: '✦', colorKey: 'primary', screen: 'aischeduling' },
     { label: 'Timetable', sub: 'View your sections', glyph: '▦', colorKey: 'sky', screen: 'timetable' },
     { label: 'Faculty', sub: 'Teacher details and load', glyph: '◉', colorKey: 'mint', screen: 'faculty' },
     { label: 'Conflicts', sub: 'Scan for clashes', glyph: '!', colorKey: 'pink', screen: 'conflicts' },
