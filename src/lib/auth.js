@@ -4,8 +4,7 @@ import { supabase } from './supabase';
 
 const DEVICE_KEY = 'smartsched_device_id';
 
-// Reads the account's profile. Accounts that aren't approved are signed out here,
-// so no screen can be reached without approval.
+// Checks the account. Unapproved accounts are signed out here, so no screen can be reached.
 // Returns { profile, status }. profile is null unless the account is approved.
 export const checkAccount = async (userId) => {
   const { data, error } = await supabase
@@ -25,43 +24,49 @@ export const checkAccount = async (userId) => {
   return { profile: data, status: 'approved' };
 };
 
-// Sign-up request: the account is created as pending and can't be used until approved
-export const signUpRequest = async ({ name, email, password, role, departmentId }) => {
+// True if a Registrar already exists (first-time setup is then closed)
+export const registrarExists = async () => {
+  const { data, error } = await supabase.rpc('registrar_exists');
+  if (error) throw new Error(error.message);
+  return !!data;
+};
+
+// First-time setup: creates the one Registrar account
+export const registrarSignUp = async ({ name, email, password }) => {
   const { error } = await supabase.auth.signUp({
     email,
     password,
-    options: {
-      data: { full_name: name, requested_role: role, requested_department: departmentId },
-    },
+    options: { data: { full_name: name, requested_role: 'registrar' } },
   });
   if (error) throw new Error(error.message);
-  // End this session right away, because the account has no access yet
   await supabase.auth.signOut();
 };
 
-// Registrar: pending requests
-export const fetchPendingAccounts = async () => {
+// Registrar: add a HOD or Faculty account (runs on the server)
+export const createAccount = async (payload) => {
+  const { data, error } = await supabase.functions.invoke('create-account', { body: payload });
+  if (error) {
+    let message = error.message;
+    try {
+      const body = await error.context.json();
+      message = body.error || message;
+    } catch (e) {
+      // keep the default message
+    }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+};
+
+// Registrar: every account and its role
+export const fetchPeople = async () => {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, department_id, created_at')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true });
+    .select('id, full_name, email, role, department_id, status')
+    .order('full_name');
   if (error) throw new Error(error.message);
   return data || [];
-};
-
-export const approveAccount = async ({ userId, role, departmentId }) => {
-  const { error } = await supabase.rpc('approve_account', {
-    p_user: userId,
-    p_role: role,
-    p_department: departmentId,
-  });
-  if (error) throw new Error(error.message);
-};
-
-export const rejectAccount = async (userId) => {
-  const { error } = await supabase.rpc('reject_account', { p_user: userId });
-  if (error) throw new Error(error.message);
 };
 
 // A stable id for this phone, created once and kept on the device
@@ -78,7 +83,6 @@ export const getDeviceLabel = () =>
   `${Platform.OS === 'android' ? 'Android' : 'iOS'} ${Platform.Version} · SmartSched app`;
 
 // Signs in and records the attempt (success or failure) in login history.
-// Logging never blocks the sign-in itself.
 export const signInTracked = async (email, password) => {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   try {
@@ -88,12 +92,12 @@ export const signInTracked = async (email, password) => {
       p_success: !error,
     });
   } catch (e) {
-    // ignore logging errors
+    // logging never blocks sign-in
   }
   return { data, error };
 };
 
-// Marks this phone as active. Called when a session starts or is restored.
+// Marks this phone as active
 export const touchDevice = async () => {
   try {
     const deviceId = await getDeviceId();
@@ -125,7 +129,7 @@ export const fetchActiveDevices = async () => {
   return data || [];
 };
 
-// Removes other devices from the list and signs them out on the server.
+// Removes other devices from the list and signs them out on the server
 export const signOutOtherDevices = async () => {
   const deviceId = await getDeviceId();
   const { error: dbError } = await supabase.rpc('clear_other_devices', { p_device_id: deviceId });
@@ -135,7 +139,7 @@ export const signOutOtherDevices = async () => {
   if (error) throw new Error(error.message);
 };
 
-// Checks the current password, then sets the new one.
+// Checks the current password, then sets the new one
 export const changePassword = async (email, currentPassword, newPassword) => {
   const check = await supabase.auth.signInWithPassword({ email, password: currentPassword });
   if (check.error) throw new Error('Current password is incorrect');
@@ -144,7 +148,7 @@ export const changePassword = async (email, currentPassword, newPassword) => {
   if (error) throw new Error(error.message);
 };
 
-// Forgot password: emails a 6-digit code to the account
+// Forgot password: emails a 6-digit code
 export const requestResetCode = async (email) => {
   const { error } = await supabase.auth.resetPasswordForEmail(email);
   if (error) throw new Error(error.message);

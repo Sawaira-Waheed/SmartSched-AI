@@ -23,7 +23,7 @@ export const MENU = [
   { key: 'aischeduling', label: 'AI Scheduling', glyph: '✦', roles: ADMIN },
   { key: 'conflicts', label: 'Conflicts', glyph: '!', roles: ADMIN },
   { key: 'notifications', label: 'Notifications', glyph: '◔', roles: EVERYONE },
-  { key: 'approvals', label: 'Approvals', glyph: '✓', roles: [REGISTRAR] },
+  { key: 'people', label: 'Accounts', glyph: '✓', roles: [REGISTRAR] },
   { key: 'reports', label: 'Reports', glyph: '▲', roles: [REGISTRAR, HOD] },
   { key: 'audit', label: 'Audit Logs', glyph: '≡', roles: ADMIN },
   { key: 'profile', label: 'Profile', glyph: '○', roles: EVERYONE },
