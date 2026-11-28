@@ -164,3 +164,44 @@ export const setNewPassword = async (password) => {
   const { error } = await supabase.auth.updateUser({ password });
   if (error) throw new Error(error.message);
 };
+
+// Calls an Edge Function and returns its error message on failure
+const callFunction = async (name, body) => {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    let message = error.message;
+    try {
+      const json = await error.context.json();
+      message = json.error || message;
+    } catch (e) {
+      // keep the default message
+    }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+};
+
+export const manageAccount = (payload) => callFunction('manage-account', payload);
+
+export const getMyUserId = async () => {
+  const { data } = await supabase.auth.getUser();
+  return data?.user?.id || null;
+};
+
+export const fetchMyProfile = async () => {
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('full_name, phone, role, department_id, email')
+    .eq('id', auth.user.id)
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+};
+
+export const updateMyProfile = async (name, phone) => {
+  const { error } = await supabase.rpc('update_my_profile', { p_name: name, p_phone: phone });
+  if (error) throw new Error(error.message);
+};

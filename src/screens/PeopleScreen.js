@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '../theme/theme';
 import { getAccess, ROLE } from '../utils/permissions';
-import { fetchPeople, createAccount } from '../lib/auth';
+import { fetchPeople, createAccount, manageAccount, getMyUserId } from '../lib/auth';
 import { fetchDepartments } from '../lib/data';
 import { Chip, StatsRow, StatTile, EmptyCard } from '../components/ui';
 
@@ -11,7 +11,7 @@ const ROLE_OPTIONS = [
   { key: 'hod', label: 'HOD' },
   { key: 'faculty', label: 'Faculty' },
 ];
-const EMPTY = { name: '', email: '', password: '', role: '', departmentId: '', maxHours: '18' };
+const EMPTY_ADD = { name: '', email: '', password: '', role: '', departmentId: '', maxHours: '18' };
 
 const PeopleScreen = ({ route }) => {
   const { c, shadow } = useTheme();
@@ -23,19 +23,28 @@ const PeopleScreen = ({ route }) => {
   const [loadError, setLoadError] = useState('');
   const [people, setPeople] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [myId, setMyId] = useState(null);
+
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState(EMPTY);
-  const [submitted, setSubmitted] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [serverError, setServerError] = useState('');
+  const [addForm, setAddForm] = useState(EMPTY_ADD);
+  const [addSubmitted, setAddSubmitted] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState('');
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const [pe, de] = await Promise.all([fetchPeople(), fetchDepartments()]);
+      const [pe, de, me] = await Promise.all([fetchPeople(), fetchDepartments(), getMyUserId()]);
       setPeople(pe);
       setDepartments(de);
+      setMyId(me);
     } catch (e) {
       setLoadError(e.message);
     } finally {
@@ -48,49 +57,127 @@ const PeopleScreen = ({ route }) => {
     else setLoading(false);
   }, []);
 
-  const set = (key) => (value) => setForm((prev) => ({ ...prev, [key]: value }));
   const deptName = (id) => departments.find((d) => d.id === id)?.name || 'Unassigned';
+  const selected = people.find((p) => p.id === selectedId) || null;
+  const canManage = (p) => p.role !== 'registrar' && p.id !== myId;
 
-  const errors = {
-    name: !form.name.trim() ? 'Name is required' : '',
-    email: !form.email.includes('@') ? 'Enter a valid email' : '',
-    password: form.password.length < 6 ? 'Temporary password needs 6+ characters' : '',
-    role: !form.role ? 'Choose HOD or Faculty' : '',
-    departmentId: !form.departmentId ? 'Choose a department' : '',
+  // ----- add -----
+  const setAdd = (key) => (value) => setAddForm((prev) => ({ ...prev, [key]: value }));
+  const addErrors = {
+    name: !addForm.name.trim() ? 'Name is required' : '',
+    email: !addForm.email.includes('@') ? 'Enter a valid email' : '',
+    password: addForm.password.length < 6 ? 'Temporary password needs 6+ characters' : '',
+    role: !addForm.role ? 'Choose HOD or Faculty' : '',
+    departmentId: !addForm.departmentId ? 'Choose a department' : '',
   };
-  const hasErrors = Object.values(errors).some(Boolean);
-  const shown = (key) => (submitted ? errors[key] : '');
+  const addInvalid = Object.values(addErrors).some(Boolean);
+  const addShown = (key) => (addSubmitted ? addErrors[key] : '');
 
-  const submit = async () => {
-    setSubmitted(true);
-    setServerError('');
-    if (hasErrors || saving) return;
+  const submitAdd = async () => {
+    setAddSubmitted(true);
+    setAddError('');
+    if (addInvalid || addSaving) return;
 
-    setSaving(true);
+    setAddSaving(true);
     try {
       await createAccount({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        password: form.password,
-        role: form.role,
-        departmentId: form.departmentId,
-        maxHoursPerWeek: Number(form.maxHours) || 18,
+        name: addForm.name.trim(),
+        email: addForm.email.trim(),
+        password: addForm.password,
+        role: addForm.role,
+        departmentId: addForm.departmentId,
+        maxHoursPerWeek: Number(addForm.maxHours) || 18,
       });
-      Alert.alert(
-        'Account created',
-        `Share the email and temporary password with ${form.name.trim()}. They can change it in Settings.`,
-      );
-      setForm(EMPTY);
-      setSubmitted(false);
+      Alert.alert('Account created', `Share the email and temporary password with ${addForm.name.trim()}.`);
+      setAddForm(EMPTY_ADD);
+      setAddSubmitted(false);
       setAdding(false);
       await load();
     } catch (e) {
-      setServerError(e.message);
+      setAddError(e.message);
     } finally {
-      setSaving(false);
+      setAddSaving(false);
     }
   };
 
+  // ----- edit -----
+  const startEdit = (p) => {
+    setEditError('');
+    setEdit({ name: p.full_name, role: p.role, departmentId: p.department_id || '' });
+  };
+
+  const saveEdit = async () => {
+    if (!edit.name.trim()) {
+      setEditError('Name is required');
+      return;
+    }
+    if (!edit.departmentId) {
+      setEditError('Choose a department');
+      return;
+    }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await manageAccount({
+        action: 'update',
+        userId: selectedId,
+        name: edit.name.trim(),
+        role: edit.role,
+        departmentId: edit.departmentId,
+      });
+      setEdit(null);
+      await load();
+    } catch (e) {
+      setEditError(e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // ----- suspend / activate / delete -----
+  const runAction = async (payload, after) => {
+    setBusy(true);
+    try {
+      await manageAccount(payload);
+      if (after) after();
+      await load();
+    } catch (e) {
+      Alert.alert('Could not update', e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleSuspend = (p) => {
+    const suspending = p.status !== 'suspended';
+    Alert.alert(
+      suspending ? 'Suspend account' : 'Activate account',
+      suspending
+        ? `${p.full_name} won't be able to sign in until you activate them again.`
+        : `${p.full_name} can sign in again.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: suspending ? 'Suspend' : 'Activate',
+          style: suspending ? 'destructive' : 'default',
+          onPress: () => runAction({ action: suspending ? 'suspend' : 'activate', userId: p.id }),
+        },
+      ],
+    );
+  };
+
+  const removeAccount = (p) => {
+    Alert.alert('Delete account', `Permanently delete ${p.full_name}'s login and profile? This can't be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => runAction({ action: 'delete', userId: p.id }, () => setSelectedId(null)),
+      },
+    ]);
+  };
+
+  // ----- screens -----
   if (!isRegistrar) {
     return (
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
@@ -119,7 +206,7 @@ const PeopleScreen = ({ route }) => {
       <View style={s.headerRow}>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>Accounts</Text>
-          <Text style={s.subtitle}>Add HODs and Faculty, and see who has access</Text>
+          <Text style={s.subtitle}>Add, edit, suspend or remove access</Text>
         </View>
         <Pressable style={s.addBtn} onPress={() => setAdding((v) => !v)}>
           <Text style={s.addBtnText}>{adding ? 'Close' : '+ Add'}</Text>
@@ -144,36 +231,36 @@ const PeopleScreen = ({ route }) => {
         <View style={s.card}>
           <Text style={s.cardTitle}>New account</Text>
 
-          <Field s={s} label="Full name" error={shown('name')}>
+          <Field s={s} label="Full name" error={addShown('name')}>
             <TextInput
-              style={[s.input, shown('name') && s.inputError]}
+              style={[s.input, addShown('name') && s.inputError]}
               placeholder="e.g. Dr. Ayesha Khan"
               placeholderTextColor={c.muted}
-              value={form.name}
-              onChangeText={set('name')}
+              value={addForm.name}
+              onChangeText={setAdd('name')}
             />
           </Field>
 
-          <Field s={s} label="University email" error={shown('email')}>
+          <Field s={s} label="University email" error={addShown('email')}>
             <TextInput
-              style={[s.input, shown('email') && s.inputError]}
+              style={[s.input, addShown('email') && s.inputError]}
               placeholder="name@uni.edu"
               placeholderTextColor={c.muted}
-              value={form.email}
-              onChangeText={set('email')}
+              value={addForm.email}
+              onChangeText={setAdd('email')}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
             />
           </Field>
 
-          <Field s={s} label="Temporary password" error={shown('password')}>
+          <Field s={s} label="Temporary password" error={addShown('password')}>
             <TextInput
-              style={[s.input, shown('password') && s.inputError]}
+              style={[s.input, addShown('password') && s.inputError]}
               placeholder="At least 6 characters"
               placeholderTextColor={c.muted}
-              value={form.password}
-              onChangeText={set('password')}
+              value={addForm.password}
+              onChangeText={setAdd('password')}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -182,10 +269,10 @@ const PeopleScreen = ({ route }) => {
           <Text style={s.label}>Role</Text>
           <View style={s.chipWrap}>
             {ROLE_OPTIONS.map((r) => (
-              <Chip key={r.key} label={r.label} active={form.role === r.key} onPress={() => set('role')(r.key)} />
+              <Chip key={r.key} label={r.label} active={addForm.role === r.key} onPress={() => setAdd('role')(r.key)} />
             ))}
           </View>
-          {shown('role') ? <Text style={s.errorText}>{errors.role}</Text> : null}
+          {addShown('role') ? <Text style={s.errorText}>{addErrors.role}</Text> : null}
 
           <Text style={[s.label, { marginTop: 12 }]}>Department</Text>
           <View style={s.chipWrap}>
@@ -193,36 +280,31 @@ const PeopleScreen = ({ route }) => {
               <Chip
                 key={d.id}
                 label={d.name}
-                active={form.departmentId === d.id}
-                onPress={() => set('departmentId')(d.id)}
+                active={addForm.departmentId === d.id}
+                onPress={() => setAdd('departmentId')(d.id)}
               />
             ))}
           </View>
-          {shown('departmentId') ? <Text style={s.errorText}>{errors.departmentId}</Text> : null}
+          {addShown('departmentId') ? <Text style={s.errorText}>{addErrors.departmentId}</Text> : null}
 
-          {form.role === 'faculty' ? (
+          {addForm.role === 'faculty' ? (
             <Field s={s} label="Max hours per week" error="">
-              <TextInput
-                style={s.input}
-                keyboardType="number-pad"
-                value={form.maxHours}
-                onChangeText={set('maxHours')}
-              />
+              <TextInput style={s.input} keyboardType="number-pad" value={addForm.maxHours} onChangeText={setAdd('maxHours')} />
             </Field>
           ) : null}
 
-          {serverError ? (
+          {addError ? (
             <View style={s.serverBox}>
-              <Text style={s.serverText}>{serverError}</Text>
+              <Text style={s.serverText}>{addError}</Text>
             </View>
           ) : null}
 
           <Pressable
-            disabled={saving}
-            style={({ pressed }) => [s.primaryBtn, pressed && s.pressed, saving && s.busy]}
-            onPress={submit}
+            disabled={addSaving}
+            style={({ pressed }) => [s.primaryBtn, pressed && s.pressed, addSaving && s.busy]}
+            onPress={submitAdd}
           >
-            {saving ? <ActivityIndicator color={c.white} /> : <Text style={s.primaryBtnText}>Create account</Text>}
+            {addSaving ? <ActivityIndicator color={c.white} /> : <Text style={s.primaryBtnText}>Create account</Text>}
           </Pressable>
         </View>
       ) : null}
@@ -231,28 +313,144 @@ const PeopleScreen = ({ route }) => {
       {people.length === 0 ? (
         <EmptyCard text="No accounts yet." />
       ) : (
-        people.map((p) => (
-          <View key={p.id} style={s.row}>
-            <View style={s.avatar}>
-              <Text style={s.avatarText}>{(p.full_name || '?').charAt(0).toUpperCase()}</Text>
+        people.map((p) => {
+          const isOpen = selectedId === p.id;
+          const suspended = p.status === 'suspended';
+          return (
+            <View key={p.id}>
+              <Pressable
+                onPress={() => {
+                  setSelectedId(isOpen ? null : p.id);
+                  setEdit(null);
+                }}
+                style={({ pressed }) => [s.row, isOpen && s.rowOpen, pressed && s.pressed]}
+              >
+                <View style={s.avatar}>
+                  <Text style={s.avatarText}>{(p.full_name || '?').charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.name} numberOfLines={1}>
+                    {p.full_name}
+                    {p.id === myId ? '  (you)' : ''}
+                  </Text>
+                  <Text style={s.email} numberOfLines={1}>
+                    {p.email || '—'}
+                  </Text>
+                  <Text style={s.meta} numberOfLines={1}>
+                    {p.role === 'registrar' ? 'All departments' : deptName(p.department_id)}
+                  </Text>
+                </View>
+                <View style={[s.pill, { backgroundColor: suspended ? c.redSoft : c.primarySoft }]}>
+                  <Text style={[s.pillText, { color: suspended ? c.red : c.primary }]}>
+                    {suspended ? 'SUSPENDED' : (ROLE_LABEL[p.role] || p.role).toUpperCase()}
+                  </Text>
+                </View>
+              </Pressable>
+
+              {isOpen ? (
+                <View style={s.panel}>
+                  {!canManage(selected) ? (
+                    <Text style={s.panelNote}>
+                      {selected.role === 'registrar'
+                        ? 'Registrar accounts are managed in the Supabase dashboard.'
+                        : 'This is your account. Use Profile to change your name and phone.'}
+                    </Text>
+                  ) : edit ? (
+                    <>
+                      <Text style={s.label}>Full name</Text>
+                      <TextInput
+                        style={s.input}
+                        value={edit.name}
+                        onChangeText={(v) => setEdit({ ...edit, name: v })}
+                        placeholderTextColor={c.muted}
+                      />
+
+                      <Text style={[s.label, { marginTop: 12 }]}>Role</Text>
+                      <View style={s.chipWrap}>
+                        {ROLE_OPTIONS.map((r) => (
+                          <Chip
+                            key={r.key}
+                            label={r.label}
+                            active={edit.role === r.key}
+                            onPress={() => setEdit({ ...edit, role: r.key })}
+                          />
+                        ))}
+                      </View>
+
+                      <Text style={[s.label, { marginTop: 12 }]}>Department</Text>
+                      <View style={s.chipWrap}>
+                        {departments.map((d) => (
+                          <Chip
+                            key={d.id}
+                            label={d.name}
+                            active={edit.departmentId === d.id}
+                            onPress={() => setEdit({ ...edit, departmentId: d.id })}
+                          />
+                        ))}
+                      </View>
+
+                      {editError ? <Text style={s.errorText}>{editError}</Text> : null}
+
+                      <View style={s.actionRow}>
+                        <Pressable style={[s.actionBtn, { backgroundColor: c.surfaceAlt }]} onPress={() => setEdit(null)}>
+                          <Text style={[s.actionText, { color: c.muted }]}>Cancel</Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={editSaving}
+                          style={[s.actionBtn, { backgroundColor: c.primary }, editSaving && s.busy]}
+                          onPress={saveEdit}
+                        >
+                          {editSaving ? (
+                            <ActivityIndicator color={c.white} />
+                          ) : (
+                            <Text style={[s.actionText, { color: c.white }]}>Save</Text>
+                          )}
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <View style={s.actionRow}>
+                        <Pressable
+                          disabled={busy}
+                          style={[s.actionBtn, { backgroundColor: c.primary }, busy && s.busy]}
+                          onPress={() => startEdit(selected)}
+                        >
+                          <Text style={[s.actionText, { color: c.white }]}>Edit</Text>
+                        </Pressable>
+                        <Pressable
+                          disabled={busy}
+                          style={[
+                            s.actionBtn,
+                            { backgroundColor: suspended ? c.mintSoft : c.amberSoft },
+                            busy && s.busy,
+                          ]}
+                          onPress={() => toggleSuspend(selected)}
+                        >
+                          <Text style={[s.actionText, { color: suspended ? c.mint : c.amber }]}>
+                            {suspended ? 'Activate' : 'Suspend'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <Pressable
+                        disabled={busy}
+                        style={({ pressed }) => [s.deleteBtn, pressed && s.pressed, busy && s.busy]}
+                        onPress={() => removeAccount(selected)}
+                      >
+                        <Text style={s.deleteText}>Delete account</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              ) : null}
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={s.name} numberOfLines={1}>
-                {p.full_name}
-              </Text>
-              <Text style={s.email} numberOfLines={1}>
-                {p.email || '—'}
-              </Text>
-              <Text style={s.meta} numberOfLines={1}>
-                {p.role === 'registrar' ? 'All departments' : deptName(p.department_id)}
-              </Text>
-            </View>
-            <View style={[s.pill, { backgroundColor: c.primarySoft }]}>
-              <Text style={[s.pillText, { color: c.primary }]}>{ROLE_LABEL[p.role]?.toUpperCase() || p.role}</Text>
-            </View>
-          </View>
-        ))
+          );
+        })
       )}
+
+      <Text style={s.note}>
+        Changing a teacher to HOD removes their teaching record, but only when no classes are assigned to them.
+      </Text>
     </ScrollView>
   );
 };
@@ -273,7 +471,7 @@ const makeStyles = (c, shadow) =>
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
     loadingText: { fontSize: 12, color: c.muted, marginTop: 10 },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
-    busy: { opacity: 0.7 },
+    busy: { opacity: 0.6 },
     title: { fontSize: 26, fontWeight: '800', color: c.text },
     subtitle: { fontSize: 12, color: c.muted, marginTop: 3 },
     headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
@@ -326,6 +524,7 @@ const makeStyles = (c, shadow) =>
       marginBottom: 10,
       ...shadow,
     },
+    rowOpen: { borderWidth: 1.5, borderColor: c.primary },
     avatar: {
       width: 44,
       height: 44,
@@ -341,4 +540,14 @@ const makeStyles = (c, shadow) =>
     meta: { fontSize: 11, color: c.muted, marginTop: 2 },
     pill: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, marginLeft: 8 },
     pillText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+
+    panel: { backgroundColor: c.surfaceAlt, borderRadius: 18, padding: 14, marginTop: -4, marginBottom: 12 },
+    panelNote: { fontSize: 12, color: c.muted, lineHeight: 18 },
+    actionRow: { flexDirection: 'row', marginHorizontal: -5 },
+    actionBtn: { flex: 1, borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginHorizontal: 5, minHeight: 46, justifyContent: 'center' },
+    actionText: { fontSize: 13, fontWeight: '800' },
+    deleteBtn: { borderRadius: 14, borderWidth: 1.5, borderColor: c.red, paddingVertical: 12, alignItems: 'center', marginTop: 10 },
+    deleteText: { fontSize: 13, fontWeight: '800', color: c.red },
+
+    note: { fontSize: 10, color: c.muted, textAlign: 'center', marginTop: 16, lineHeight: 15 },
   });

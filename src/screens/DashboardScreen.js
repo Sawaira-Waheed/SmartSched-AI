@@ -421,9 +421,14 @@ const DashboardScreen = ({ route, navigation, themeMode, onToggleTheme }) => {
             <Text style={s.iconGlyph}>{themeMode === 'light' ? '☾' : '☀'}</Text>
           </Pressable>
 
-          <View style={s.avatar}>
+                    <Pressable
+            style={s.avatar}
+            onPress={() => navigation.navigate('profile', route?.params)}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
+          >
             <Text style={s.avatarText}>{initial}</Text>
-          </View>
+          </Pressable>
         </View>
 
         {loadError ? (

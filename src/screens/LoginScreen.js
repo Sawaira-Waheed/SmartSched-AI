@@ -17,6 +17,7 @@ const STATUS_MESSAGE = {
   pending: 'Your account is waiting for Registrar approval.',
   rejected: 'Your request was not approved. Please contact the Registrar.',
   missing: 'This account is not set up yet. Please request access or contact the Registrar.',
+  suspended: 'Your account has been suspended. Please contact the Registrar.',
 };
 
 const LoginScreen = ({ navigation }) => {
