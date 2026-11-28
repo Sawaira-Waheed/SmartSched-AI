@@ -20,6 +20,7 @@ import CalendarScreen from './screens/CalendarScreen';
 import ConflictsScreen from './screens/ConflictsScreen';
 import AiSchedulingScreen from './screens/AiSchedulingScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
+import ApprovalsScreen from './screens/ApprovalsScreen';
 import ReportsScreen from './screens/ReportsScreen';
 import AuditLogsScreen from './screens/AuditLogsScreen';
 import ProfileScreen from './screens/ProfileScreen';
@@ -59,6 +60,7 @@ const APP_SCREENS = {
   aischeduling: AiSchedulingScreen,
   conflicts: ConflictsScreen,
   notifications: NotificationsScreen,
+  approvals: ApprovalsScreen,
   reports: ReportsScreen,
   audit: AuditLogsScreen,
   profile: ProfileScreen,

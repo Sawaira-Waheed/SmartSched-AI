@@ -11,8 +11,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../theme/theme';
-import { supabase } from '../lib/supabase';
-import { loadProfile } from '../lib/auth';
+import { signInTracked, checkAccount } from '../lib/auth';
+
+const STATUS_MESSAGE = {
+  pending: 'Your account is waiting for Registrar approval.',
+  rejected: 'Your request was not approved. Please contact the Registrar.',
+  missing: 'This account is not set up yet. Please request access or contact the Registrar.',
+};
 
 const LoginScreen = ({ navigation }) => {
   const { c, shadow } = useTheme();
@@ -50,24 +55,18 @@ const LoginScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
+      const { data, error } = await signInTracked(email.trim(), password);
       if (error) {
         setServerError(
-          error.message === 'Invalid login credentials'
-            ? 'Email or password is incorrect'
-            : error.message,
+          error.message === 'Invalid login credentials' ? 'Email or password is incorrect' : error.message,
         );
         return;
       }
 
-      const profile = await loadProfile(data.user.id);
+      // Unapproved accounts are signed out inside checkAccount
+      const { profile, status } = await checkAccount(data.user.id);
       if (!profile) {
-        await supabase.auth.signOut();
-        setServerError('This account is not set up yet. Ask the Registrar to approve it.');
+        setServerError(STATUS_MESSAGE[status] || STATUS_MESSAGE.missing);
         return;
       }
 
@@ -86,7 +85,6 @@ const LoginScreen = ({ navigation }) => {
   return (
     <KeyboardAvoidingView style={s.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        {/* BRAND */}
         <View style={s.brandWrap}>
           <View style={s.logo}>
             <Text style={s.logoText}>S</Text>
@@ -99,7 +97,6 @@ const LoginScreen = ({ navigation }) => {
         <Text style={s.heading}>Welcome back</Text>
         <Text style={s.subheading}>Sign in with your university account to continue.</Text>
 
-        {/* FORM */}
         <View style={s.form}>
           <Text style={s.label}>University email</Text>
           <View style={[s.inputWrap, emailError && s.inputWrapError]}>
@@ -153,21 +150,17 @@ const LoginScreen = ({ navigation }) => {
 
           <Pressable
             disabled={loading}
-            style={({ pressed }) => [s.primaryBtn, pressed && s.pressed, loading && s.primaryBtnBusy]}
+            style={({ pressed }) => [s.primaryBtn, pressed && s.pressed, loading && s.busy]}
             onPress={handleSignIn}
           >
-            {loading ? (
-              <ActivityIndicator color={c.white} />
-            ) : (
-              <Text style={s.primaryBtnText}>Sign in</Text>
-            )}
+            {loading ? <ActivityIndicator color={c.white} /> : <Text style={s.primaryBtnText}>Sign in</Text>}
           </Pressable>
         </View>
 
         <View style={s.footerRow}>
           <Text style={s.footerText}>New here?</Text>
           <Pressable onPress={() => navigation.navigate('signup')} hitSlop={8}>
-            <Text style={s.footerLink}> Create an account</Text>
+            <Text style={s.footerLink}> Request an account</Text>
           </Pressable>
         </View>
 
@@ -184,17 +177,10 @@ const makeStyles = (c, shadow) =>
     container: { flex: 1, backgroundColor: c.bg },
     scroll: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingVertical: 40 },
     pressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+    busy: { opacity: 0.7 },
 
     brandWrap: { alignItems: 'center', marginBottom: 26 },
-    logo: {
-      width: 64,
-      height: 64,
-      borderRadius: 22,
-      backgroundColor: c.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      ...shadow,
-    },
+    logo: { width: 64, height: 64, borderRadius: 22, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center', ...shadow },
     logoText: { color: c.white, fontSize: 30, fontWeight: '800' },
     brand: { fontSize: 16, fontWeight: '800', color: c.text, marginTop: 12, letterSpacing: 0.3 },
     brandAi: { color: c.primary },
@@ -237,7 +223,6 @@ const makeStyles = (c, shadow) =>
       justifyContent: 'center',
       ...shadow,
     },
-    primaryBtnBusy: { opacity: 0.85 },
     primaryBtnText: { color: c.white, fontSize: 15, fontWeight: '800' },
 
     footerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 24 },

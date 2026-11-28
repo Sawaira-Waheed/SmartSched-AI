@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, StatusBar } from 'react-native';
 import { useTheme } from '../theme/theme';
 import { supabase } from '../lib/supabase';
-import { loadProfile } from '../lib/auth';
+import { checkAccount } from '../lib/auth';
 
 const SplashScreen = ({ navigation }) => {
   const { c, mode, shadow } = useTheme();
@@ -13,12 +13,13 @@ const SplashScreen = ({ navigation }) => {
 
     const minDelay = new Promise((resolve) => setTimeout(resolve, 2800));
 
-    // Returns the profile if a session was saved on this phone, otherwise null
+    // Returns the profile if a saved session belongs to an approved account
     const restoreSession = async () => {
       try {
         const { data } = await supabase.auth.getSession();
         if (!data.session) return null;
-        return await loadProfile(data.session.user.id);
+        const { profile } = await checkAccount(data.session.user.id);
+        return profile;
       } catch (e) {
         return null;
       }
@@ -71,57 +72,15 @@ export default SplashScreen;
 
 const makeStyles = (c, shadow) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: c.bg,
-      alignItems: 'center',
-      justifyContent: 'center',
-      overflow: 'hidden',
-    },
-
-    blobTop: {
-      position: 'absolute',
-      width: 260,
-      height: 260,
-      borderRadius: 130,
-      backgroundColor: c.primarySoft,
-      top: -110,
-      right: -90,
-    },
-    blobBottom: {
-      position: 'absolute',
-      width: 220,
-      height: 220,
-      borderRadius: 110,
-      backgroundColor: c.skySoft,
-      bottom: -100,
-      left: -80,
-    },
-
-    logo: {
-      width: 110,
-      height: 110,
-      borderRadius: 34,
-      backgroundColor: c.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      ...shadow,
-    },
+    container: { flex: 1, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+    blobTop: { position: 'absolute', width: 260, height: 260, borderRadius: 130, backgroundColor: c.primarySoft, top: -110, right: -90 },
+    blobBottom: { position: 'absolute', width: 220, height: 220, borderRadius: 110, backgroundColor: c.skySoft, bottom: -100, left: -80 },
+    logo: { width: 110, height: 110, borderRadius: 34, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center', ...shadow },
     logoText: { color: c.white, fontSize: 56, fontWeight: '800' },
-    logoDot: {
-      position: 'absolute',
-      top: 18,
-      right: 18,
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-      backgroundColor: c.pink,
-    },
-
+    logoDot: { position: 'absolute', top: 18, right: 18, width: 12, height: 12, borderRadius: 6, backgroundColor: c.pink },
     brand: { fontSize: 28, fontWeight: '800', color: c.text, marginTop: 26, letterSpacing: 0.3 },
     brandAi: { color: c.primary },
     tagline: { fontSize: 13, color: c.muted, marginTop: 8, textAlign: 'center', paddingHorizontal: 30 },
-
     loader: { position: 'absolute', bottom: 70, alignItems: 'center' },
     loadingText: { fontSize: 12, color: c.muted, marginTop: 12, fontWeight: '600' },
   });

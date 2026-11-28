@@ -4,16 +4,64 @@ import { supabase } from './supabase';
 
 const DEVICE_KEY = 'smartsched_device_id';
 
-// Reads the signed-in user's role and department from the profiles table.
-export const loadProfile = async (userId) => {
+// Reads the account's profile. Accounts that aren't approved are signed out here,
+// so no screen can be reached without approval.
+// Returns { profile, status }. profile is null unless the account is approved.
+export const checkAccount = async (userId) => {
   const { data, error } = await supabase
     .from('profiles')
-    .select('full_name, role, department_id')
+    .select('full_name, role, department_id, status')
     .eq('id', userId)
     .single();
 
-  if (error || !data) return null;
-  return data;
+  if (error || !data) {
+    await supabase.auth.signOut();
+    return { profile: null, status: 'missing' };
+  }
+  if (data.status !== 'approved') {
+    await supabase.auth.signOut();
+    return { profile: null, status: data.status };
+  }
+  return { profile: data, status: 'approved' };
+};
+
+// Sign-up request: the account is created as pending and can't be used until approved
+export const signUpRequest = async ({ name, email, password, role, departmentId }) => {
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { full_name: name, requested_role: role, requested_department: departmentId },
+    },
+  });
+  if (error) throw new Error(error.message);
+  // End this session right away, because the account has no access yet
+  await supabase.auth.signOut();
+};
+
+// Registrar: pending requests
+export const fetchPendingAccounts = async () => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, role, department_id, created_at')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return data || [];
+};
+
+export const approveAccount = async ({ userId, role, departmentId }) => {
+  const { error } = await supabase.rpc('approve_account', {
+    p_user: userId,
+    p_role: role,
+    p_department: departmentId,
+  });
+  if (error) throw new Error(error.message);
+};
+
+export const rejectAccount = async (userId) => {
+  const { error } = await supabase.rpc('reject_account', { p_user: userId });
+  if (error) throw new Error(error.message);
 };
 
 // A stable id for this phone, created once and kept on the device
@@ -96,8 +144,7 @@ export const changePassword = async (email, currentPassword, newPassword) => {
   if (error) throw new Error(error.message);
 };
 
-// Forgot password: emails a 6-digit code to the account.
-// TEMPORARY debug alert: remove the Alert line once the email arrives.
+// Forgot password: emails a 6-digit code to the account
 export const requestResetCode = async (email) => {
   const { error } = await supabase.auth.resetPasswordForEmail(email);
   if (error) throw new Error(error.message);
